@@ -16,6 +16,7 @@ int phase = 0;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
 
 typedef boost::unordered_map<graphlab::vertex_id_type, uint16_t> map_t;
+
 struct Counter {
     map_t counter;
 
@@ -41,9 +42,9 @@ struct Counter {
     }
 };
 
-typedef struct Counter VertexData;
+typedef Counter VertexData;
 typedef graphlab::empty EdgeData; // no edge data
-typedef struct Counter MessageData;
+typedef Counter MessageData;
 
 // The graph type is determined by the vertex and edge data types
 typedef graphlab::distributed_graph<VertexData, EdgeData> graph_type;
@@ -58,7 +59,7 @@ inline uint16_t select_prob(uint16_t count, double prob = 1-RESET_PROB) {
 class PreprocessProgram : public graphlab::ivertex_program<graph_type,
     graphlab::empty, MessageData> {
 private:
-    struct Counter walkers;
+    Counter walkers;
 
 public:
     void init(icontext_type& context, const vertex_type& vertex,
@@ -112,7 +113,7 @@ public:
             return graphlab::OUT_EDGES;
         else if (!walkers.empty() && context.iteration() < (int) niters-1) {
             for (map_t::const_iterator it = walkers.counter.begin(); it != walkers.counter.end(); it++) {
-                struct Counter msg;
+                Counter msg;
                 msg.counter[it->first] = it->second;
                 context.signal_vid(it->first, msg);
             }
@@ -124,7 +125,7 @@ public:
     void scatter(icontext_type& context, const vertex_type& vertex,
             edge_type& edge) const {
         if (context.iteration() < (int) niters-1) {
-            struct Counter msg;
+            Counter msg;
             for (map_t::const_iterator it = walkers.counter.begin(); it != walkers.counter.end(); it++) {
                 uint16_t count = select_prob(it->second, 1.0 / vertex.num_out_edges());
                 if (count > 0)
@@ -150,7 +151,7 @@ void collect_results(engine_type::icontext_type& context,
         graph_type::vertex_type& vertex) {
     for (map_t::const_iterator it = vertex.data().counter.begin(); it !=
             vertex.data().counter.end(); it++) {
-        struct Counter msg;
+        Counter msg;
         msg.counter[vertex.id()] = it->second;
         context.signal_vid(it->first, msg);
     }
@@ -209,10 +210,14 @@ int main(int argc, char** argv) {
     niters = 10;
     clopts.attach_option("niters", niters,
             "Number of iterations");
-    std::string saveprefix;
-    clopts.attach_option("saveprefix", saveprefix,
-            "If set, will save the resultant pagerank to a "
-            "sequence of files with prefix saveprefix");
+    std::string bin_prefix;
+    clopts.attach_option("bin_prefix", bin_prefix,
+            "If set, will save the whole graph to a sequence "
+            "of binary files with prefix bin_prefix");
+    std::string ppr_prefix;
+    clopts.attach_option("ppr_prefix", ppr_prefix,
+            "If set, will save the resultant PPR to a sequence "
+            "of human readable files with prefix ppr_prefix");
     size_t topk = 100;
     clopts.attach_option("topk", topk,
             "Output top-k elements of PPR vectors");
@@ -283,8 +288,11 @@ int main(int argc, char** argv) {
         delete sources;
 
     // Save the final graph -----------------------------------------------------
-    if (saveprefix != "") {
-        graph.save(saveprefix, pagerank_writer(topk),
+    if (bin_prefix != "") {
+        graph.save_binary(bin_prefix);
+    }
+    if (ppr_prefix != "") {
+        graph.save(ppr_prefix, pagerank_writer(topk),
                 false,    // do not gzip
                 true,     // save vertices
                 false);   // do not save edges
