@@ -172,7 +172,7 @@ public:
 
     void apply(icontext_type& context, vertex_type& vertex,
             const gather_type& total) {
-        if (!total.empty()) {
+        if (vertex.data().schedule.get(niters-context.iteration()-1)) {
             vertex.data().ppr = total.ppr;
             float_type c = (1-RESET_PROB) / vertex.num_out_edges();
             for (ppr_t::iterator it = vertex.data().ppr.begin();
