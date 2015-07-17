@@ -8,10 +8,10 @@
 
 #include <graphlab.hpp>
 
-typedef float float_t;
+typedef float float_type;
 // Global random reset probability
-const float_t RESET_PROB = 0.15;
-const float_t EPSILON = 1e-6;
+const float_type RESET_PROB = 0.15;
+const float_type EPSILON = 1e-7;
 int niters;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
 
@@ -19,7 +19,7 @@ enum phase_t {INIT_GRAPH, COMPUTE};
 phase_t phase = INIT_GRAPH;
 
 typedef boost::unordered_map<graphlab::vertex_id_type, uint16_t> map_t;
-typedef boost::unordered_map<graphlab::vertex_id_type, float_t> ppr_t;
+typedef boost::unordered_map<graphlab::vertex_id_type, float_type> ppr_t;
 
 struct VertexData {
     ppr_t ppr;
@@ -28,22 +28,22 @@ struct VertexData {
     VertexData() : ppr(), schedule(niters) {}
 
     void save(graphlab::oarchive& oarc) const {
-        oarc << schedule;
         oarc << ppr;
+        oarc << schedule;
     }
 
     void load(graphlab::iarchive& iarc) {
         if (phase == INIT_GRAPH) {
             map_t counter;
             iarc >> counter;
-            float_t sum = 0.0;
+            float_type sum = 0.0;
             for (map_t::const_iterator it = counter.begin(); it != counter.end(); it++)
                 sum += it->second;
             for (map_t::const_iterator it = counter.begin(); it != counter.end(); it++)
                 ppr[it->first] = it->second / sum;
         } else {
-            iarc >> schedule;
             iarc >> ppr;
+            iarc >> schedule;
         }
     }
 };
@@ -51,9 +51,9 @@ struct VertexData {
 typedef graphlab::empty EdgeData; // no edge data
 
 struct max_combiner : public graphlab::IS_POD_TYPE {
-    float_t value;
+    float_type value;
     max_combiner() : value(0.0) {}
-    max_combiner(float_t v) : value(v) {}
+    max_combiner(float_type v) : value(v) {}
     max_combiner& operator+=(const max_combiner& other) {
         if (other.value > value)
             value = other.value;
@@ -94,7 +94,7 @@ typedef graphlab::distributed_graph<VertexData, EdgeData> graph_type;
 class ForwardExpansion : public graphlab::ivertex_program<graph_type,
     graphlab::empty, max_combiner> {
 private:
-    float_t flow;
+    float_type flow;
 
 public:
     void init(icontext_type& context, const vertex_type& vertex,
@@ -121,7 +121,7 @@ public:
         if (flow > EPSILON) {
             for (int i = context.iteration(); i < niters; i++)
                 vertex.data().schedule.set_bit_unsync(i);
-            flow = flow * (1-RESET_PROB);
+            flow *= (1-RESET_PROB);
             if (vertex.num_out_edges() > 0)
                 flow /= vertex.num_out_edges();
         }
@@ -150,7 +150,7 @@ public:
 };
 
 class BackwardExpansion : public graphlab::ivertex_program<graph_type,
-    ppr_gather_t>, graphlab::IS_POD_TYPE {
+    ppr_gather_t>, public graphlab::IS_POD_TYPE {
 public:
     void init(icontext_type& context, const vertex_type& vertex,
             const message_type& msg) {
@@ -174,7 +174,7 @@ public:
             const gather_type& total) {
         if (!total.empty()) {
             vertex.data().ppr = total.ppr;
-            float_t c = (1-RESET_PROB) / vertex.num_out_edges();
+            float_type c = (1-RESET_PROB) / vertex.num_out_edges();
             for (ppr_t::iterator it = vertex.data().ppr.begin();
                     it != vertex.data().ppr.end(); it++)
                 it->second *= c;
@@ -194,8 +194,8 @@ public:
             edge_type& edge) const { }
 };
 
-bool compare(const std::pair<graphlab::vertex_id_type, float_t>& firstElem,
-        const std::pair<graphlab::vertex_id_type, float_t>& secondElem) {
+bool compare(const std::pair<graphlab::vertex_id_type, float_type>& firstElem,
+        const std::pair<graphlab::vertex_id_type, float_type>& secondElem) {
       return firstElem.second > secondElem.second;
 }
 
@@ -208,7 +208,7 @@ struct pagerank_writer {
         std::stringstream strm;
         if (!vertex.data().ppr.empty()) {
             strm << vertex.id();
-            std::vector<std::pair<graphlab::vertex_id_type, float_t> >
+            std::vector<std::pair<graphlab::vertex_id_type, float_type> >
                 result(vertex.data().ppr.begin(), vertex.data().ppr.end());
             std::sort(result.begin(), result.end(), compare);
             size_t len = std::min(topk, result.size());
@@ -267,8 +267,7 @@ int main(int argc, char** argv) {
     dc.cout() << "#vertices: " << graph.num_vertices()
         << " #edges:" << graph.num_edges() << std::endl;
     double runtime = graphlab::timer::approx_time_seconds() - start_time;
-    dc.cout() << "Finished loading graph in " << runtime
-        << " seconds." << std::endl;
+    dc.cout() << "Loading graph: " << runtime << " seconds" << std::endl;
 
     if (sources_file.length() > 0) {
         sources = new boost::unordered_set<graphlab::vertex_id_type>();
@@ -283,29 +282,38 @@ int main(int argc, char** argv) {
     }
 
     // Running The Engine -------------------------------------------------------
+    graphlab::timer timer;
     phase = COMPUTE;
-    graphlab::synchronous_engine<ForwardExpansion> engine(dc, graph, clopts);
-    engine.signal_all();
-    engine.start();
-    runtime = engine.elapsed_seconds();
-    dc.cout() << "Finished forward expansion in " << runtime << " seconds." << std::endl;
+    graphlab::synchronous_engine<ForwardExpansion> *engine = new
+        graphlab::synchronous_engine<ForwardExpansion>(dc, graph, clopts);
+    engine->signal_all();
+    engine->start();
+    dc.cout() << "Forward expansion: " << engine->elapsed_seconds() <<
+        " seconds" << std::endl;
+    delete engine;
 
     graphlab::synchronous_engine<BackwardExpansion> engine2(dc, graph, clopts);
     engine2.signal_all();
     engine2.start();
-    runtime = engine2.elapsed_seconds();
-    dc.cout() << "Finished backward expansion in " << runtime << " seconds." << std::endl;
+    dc.cout() << "Backward expansion: " << engine2.elapsed_seconds() <<
+        " seconds" << std::endl;
 
     if (sources)
         delete sources;
 
+    dc.cout() << "Total running time: " << timer.current_time() << " seconds" <<
+        std::endl;
+
     // Save the final graph -----------------------------------------------------
+    start_time = graphlab::timer::approx_time_seconds();
     if (saveprefix != "") {
         graph.save(saveprefix, pagerank_writer(topk),
                 false,    // do not gzip
                 true,     // save vertices
                 false);   // do not save edges
     }
+    runtime = graphlab::timer::approx_time_seconds() - start_time;
+    dc.cout() << "Save graph: " << runtime << " seconds" << std::endl;
 
     // Tear-down communication layer and quit -----------------------------------
     graphlab::mpi_tools::finalize();

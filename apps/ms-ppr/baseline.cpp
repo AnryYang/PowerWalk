@@ -253,8 +253,7 @@ int main(int argc, char** argv) {
     dc.cout() << "#vertices: " << graph.num_vertices()
         << " #edges:" << graph.num_edges() << std::endl;
     double runtime = graphlab::timer::approx_time_seconds() - start_time;
-    dc.cout() << "Finished loading graph in " << runtime
-        << " seconds." << std::endl;
+    dc.cout() << "Loading graph: " << runtime << " seconds" << std::endl;
 
     if (sources_file.length() > 0) {
         sources = new boost::unordered_set<graphlab::vertex_id_type>();
@@ -269,25 +268,28 @@ int main(int argc, char** argv) {
     }
 
     // Running The Engine -------------------------------------------------------
+    graphlab::timer timer;
     engine_type engine(dc, graph, clopts);
     engine.signal_all();
     phase = 0;
     engine.start();
-    runtime = engine.elapsed_seconds();
-    dc.cout() << "Finished running engine in " << runtime
-        << " seconds." << std::endl;
+    dc.cout() << "Simulate random walkers: " << engine.elapsed_seconds() <<
+        " seconds" << std::endl;
 
     engine.transform_vertices(collect_results);
     phase = 1;
     engine.start();
-    runtime = engine.elapsed_seconds();
-    dc.cout() << "Finished running engine in " << runtime
-        << " seconds." << std::endl;
+    dc.cout() << "Collect results: " << engine.elapsed_seconds() << " seconds"
+        << std::endl;
 
     if (sources)
         delete sources;
 
+    dc.cout() << "Total running time: " << timer.current_time() << " seconds" <<
+        std::endl;
+
     // Save the final graph -----------------------------------------------------
+    start_time = graphlab::timer::approx_time_seconds();
     if (bin_prefix != "") {
         graph.save_binary(bin_prefix);
     }
@@ -297,6 +299,8 @@ int main(int argc, char** argv) {
                 true,     // save vertices
                 false);   // do not save edges
     }
+    runtime = graphlab::timer::approx_time_seconds() - start_time;
+    dc.cout() << "Save graph: " << runtime << " seconds" << std::endl;
 
     // Tear-down communication layer and quit -----------------------------------
     graphlab::mpi_tools::finalize();
