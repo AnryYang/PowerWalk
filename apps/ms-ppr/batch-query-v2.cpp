@@ -11,7 +11,7 @@
 typedef float float_type;
 // Global random reset probability
 const float_type RESET_PROB = 0.15;
-const float_type EPSILON = 1e-7;
+float_type threshold = 1e-6;
 int niters;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
 
@@ -115,7 +115,7 @@ public:
                 float_type t = (1-RESET_PROB) * it->second;
                 if (vertex.num_out_edges() > 0)
                     t /= vertex.num_out_edges();
-                if (t > EPSILON)
+                if (t > threshold)
                     new_flow[it->first] = t;
             }
         }
@@ -167,7 +167,8 @@ public:
 
     void apply(icontext_type& context, vertex_type& vertex,
             const gather_type& total) {
-        vertex.data().ppr = ppr;
+        if (!ppr.empty())
+            vertex.data().ppr = ppr;
     }
 
     edge_dir_type scatter_edges(icontext_type& context,
@@ -189,6 +190,8 @@ void collect_results(engine_type::icontext_type& context,
         graph_type::vertex_type& vertex) {
     for (ppr_t::const_iterator it = vertex.data().flow.begin(); it !=
             vertex.data().flow.end(); it++) {
+        if (it->second < threshold)
+            continue;
         ppr_gather_t msg(vertex.data().ppr);
         for (ppr_t::iterator it2 = msg.ppr.begin(); it2 != msg.ppr.end(); it2++)
             it2->second *= it->second;
@@ -205,7 +208,6 @@ void collect_results(engine_type::icontext_type& context,
         msg.ppr[vertex.id()] = it->second;
         context.signal_vid(it->first, msg);
     }
-    vertex.data() = VertexData();
 }
 
 bool compare(const std::pair<graphlab::vertex_id_type, float_type>& firstElem,
@@ -253,6 +255,8 @@ int main(int argc, char** argv) {
     niters = 10;
     clopts.attach_option("niters", niters,
             "Number of iterations");
+    clopts.attach_option("threshold", threshold,
+            "The threshold of flow");
     std::string saveprefix;
     clopts.attach_option("saveprefix", saveprefix,
             "If set, will save the whole graph to a "
@@ -263,6 +267,9 @@ int main(int argc, char** argv) {
     std::string sources_file;
     clopts.attach_option("sources_file", sources_file,
             "The file contains all sources.");
+    int max_num_sources = 1000;
+    clopts.attach_option("num_sources", max_num_sources,
+            "The number of sources");
 
     if(!clopts.parse(argc, argv)) {
         dc.cout() << "Error in parsing command line arguments." << std::endl;
@@ -281,14 +288,14 @@ int main(int argc, char** argv) {
     dc.cout() << "#vertices: " << graph.num_vertices()
         << " #edges:" << graph.num_edges() << std::endl;
     double runtime = graphlab::timer::approx_time_seconds() - start_time;
-    dc.cout() << "Loading graph: " << runtime << " seconds" << std::endl;
+    dc.cout() << "loading : " << runtime << " seconds" << std::endl;
 
     if (sources_file.length() > 0) {
         sources = new boost::unordered_set<graphlab::vertex_id_type>();
         std::ifstream fin(sources_file.c_str());
         int num_sources;
         fin >> num_sources;
-        for (int i = 0; i < num_sources; i++) {
+        for (int i = 0; i < std::min(num_sources, max_num_sources); i++) {
             graphlab::vertex_id_type vid;
             fin >> vid;
             sources->insert(vid);
@@ -302,21 +309,22 @@ int main(int argc, char** argv) {
         graphlab::synchronous_engine<DecompositionProgram>(dc, graph, clopts);
     engine->signal_all();
     engine->start();
-    dc.cout() << "Decomposition: " << engine->elapsed_seconds() <<
+    dc.cout() << "decomposition : " << engine->elapsed_seconds() <<
         " seconds" << std::endl;
     delete engine;
 
     clopts.get_engine_args().set_option("max_iterations", 1);
     graphlab::synchronous_engine<CollectProgram> engine2(dc, graph, clopts);
+    start_time = graphlab::timer::approx_time_seconds();
     engine2.transform_vertices(collect_results);
     engine2.start();
-    dc.cout() << "Collect results: " << engine2.elapsed_seconds() <<
-        " seconds" << std::endl;
+    runtime = graphlab::timer::approx_time_seconds() - start_time;
+    dc.cout() << "sum-up : " << runtime << " seconds" << std::endl;
 
     if (sources)
         delete sources;
 
-    dc.cout() << "Total running time: " << timer.current_time() << " seconds" <<
+    dc.cout() << "runtime : " << timer.current_time() << " seconds" <<
         std::endl;
 
     // Save the final graph -----------------------------------------------------
@@ -328,7 +336,7 @@ int main(int argc, char** argv) {
                 false);   // do not save edges
     }
     runtime = graphlab::timer::approx_time_seconds() - start_time;
-    dc.cout() << "Save graph: " << runtime << " seconds" << std::endl;
+    dc.cout() << "save : " << runtime << " seconds" << std::endl;
 
     // Tear-down communication layer and quit -----------------------------------
     graphlab::mpi_tools::finalize();

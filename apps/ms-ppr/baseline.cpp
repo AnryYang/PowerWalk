@@ -12,7 +12,6 @@
 double RESET_PROB = 0.15;
 uint16_t num_walkers = 1000;
 size_t niters;
-int phase = 0;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
 
 typedef boost::unordered_map<graphlab::vertex_id_type, uint16_t> map_t;
@@ -64,17 +63,12 @@ private:
 public:
     void init(icontext_type& context, const vertex_type& vertex,
             const message_type& msg) {
-        if (phase == 0) {
-            if (context.iteration() == 0) {
-                walkers = Counter();
-                if (sources == NULL || sources->find(vertex.id()) != sources->end())
-                    walkers.counter[vertex.id()] = num_walkers;
-            } else
-                walkers = msg;
-        } else { // if (phase == 1)
+        if (context.iteration() == 0) {
+            walkers = Counter();
+            if (sources == NULL || sources->find(vertex.id()) != sources->end())
+                walkers.counter[vertex.id()] = num_walkers;
+        } else
             walkers = msg;
-            context.stop();
-        }
     }
 
     edge_dir_type gather_edges(icontext_type& context,
@@ -89,10 +83,6 @@ public:
 
     void apply(icontext_type& context, vertex_type& vertex,
             const gather_type& total) {
-        if (phase == 1) {
-            vertex.data() = walkers;
-            return;
-        }
         vertex.data() += walkers;
         for (map_t::iterator it = walkers.counter.begin(); it != walkers.counter.end(); ) {
             uint16_t new_count = select_prob(it->second);
@@ -106,9 +96,6 @@ public:
 
     edge_dir_type scatter_edges(icontext_type& context,
             const vertex_type& vertex) const {
-        if (phase == 1)
-            return graphlab::NO_EDGES;
-
         if (vertex.num_out_edges() > 0 && !walkers.empty())
             return graphlab::OUT_EDGES;
         else if (!walkers.empty() && context.iteration() < (int) niters-1) {
@@ -145,7 +132,50 @@ public:
     }
 };
 
-typedef graphlab::synchronous_engine<PreprocessProgram> engine_type;
+class CollectProgram : public graphlab::ivertex_program<graph_type,
+    graphlab::empty, MessageData> {
+private:
+    Counter walkers;
+
+public:
+    void init(icontext_type& context, const vertex_type& vertex,
+            const message_type& msg) {
+        walkers = msg;
+    }
+
+    edge_dir_type gather_edges(icontext_type& context,
+            const vertex_type& vertex) const {
+        return graphlab::NO_EDGES;
+    }
+
+    graphlab::empty gather(icontext_type& context, const vertex_type& vertex,
+            edge_type& edge) const {
+        return graphlab::empty();
+    }
+
+    void apply(icontext_type& context, vertex_type& vertex,
+            const gather_type& total) {
+        vertex.data() = walkers;
+    }
+
+    edge_dir_type scatter_edges(icontext_type& context,
+            const vertex_type& vertex) const {
+        return graphlab::NO_EDGES;
+    }
+
+    void scatter(icontext_type& context, const vertex_type& vertex,
+            edge_type& edge) const { }
+
+    void save(graphlab::oarchive& oarc) const {
+        oarc << walkers;
+    }
+
+    void load(graphlab::iarchive& iarc) {
+        iarc >> walkers;
+    }
+};
+
+typedef graphlab::synchronous_engine<CollectProgram> engine_type;
 
 void collect_results(engine_type::icontext_type& context,
         graph_type::vertex_type& vertex) {
@@ -224,6 +254,9 @@ int main(int argc, char** argv) {
     std::string sources_file;
     clopts.attach_option("sources_file", sources_file,
             "The file contains all sources.");
+    int max_num_sources = 1000;
+    clopts.attach_option("num_sources", max_num_sources,
+            "The number of sources");
 
     if(!clopts.parse(argc, argv)) {
         dc.cout() << "Error in parsing command line arguments." << std::endl;
@@ -253,14 +286,14 @@ int main(int argc, char** argv) {
     dc.cout() << "#vertices: " << graph.num_vertices()
         << " #edges:" << graph.num_edges() << std::endl;
     double runtime = graphlab::timer::approx_time_seconds() - start_time;
-    dc.cout() << "Loading graph: " << runtime << " seconds" << std::endl;
+    dc.cout() << "loading : " << runtime << " seconds" << std::endl;
 
     if (sources_file.length() > 0) {
         sources = new boost::unordered_set<graphlab::vertex_id_type>();
         std::ifstream fin(sources_file.c_str());
         int num_sources;
         fin >> num_sources;
-        for (int i = 0; i < num_sources; i++) {
+        for (int i = 0; i < std::min(num_sources, max_num_sources); i++) {
             graphlab::vertex_id_type vid;
             fin >> vid;
             sources->insert(vid);
@@ -269,23 +302,26 @@ int main(int argc, char** argv) {
 
     // Running The Engine -------------------------------------------------------
     graphlab::timer timer;
-    engine_type engine(dc, graph, clopts);
-    engine.signal_all();
-    phase = 0;
-    engine.start();
-    dc.cout() << "Simulate random walkers: " << engine.elapsed_seconds() <<
-        " seconds" << std::endl;
+    graphlab::synchronous_engine<PreprocessProgram> *engine = new
+        graphlab::synchronous_engine<PreprocessProgram>(dc, graph, clopts);
+    engine->signal_all();
+    engine->start();
+    dc.cout() << "jumping : " << engine->elapsed_seconds() << " seconds" <<
+        std::endl;
+    delete engine;
 
-    engine.transform_vertices(collect_results);
-    phase = 1;
-    engine.start();
-    dc.cout() << "Collect results: " << engine.elapsed_seconds() << " seconds"
-        << std::endl;
+    clopts.get_engine_args().set_option("max_iterations", 1);
+    engine_type engine2(dc, graph, clopts);
+    start_time = graphlab::timer::approx_time_seconds();
+    engine2.transform_vertices(collect_results);
+    engine2.start();
+    runtime = graphlab::timer::approx_time_seconds() - start_time;
+    dc.cout() << "collect : " << runtime << " seconds" << std::endl;
 
     if (sources)
         delete sources;
 
-    dc.cout() << "Total running time: " << timer.current_time() << " seconds" <<
+    dc.cout() << "runtime : " << timer.current_time() << " seconds" <<
         std::endl;
 
     // Save the final graph -----------------------------------------------------
@@ -300,7 +336,7 @@ int main(int argc, char** argv) {
                 false);   // do not save edges
     }
     runtime = graphlab::timer::approx_time_seconds() - start_time;
-    dc.cout() << "Save graph: " << runtime << " seconds" << std::endl;
+    dc.cout() << "save : " << runtime << " seconds" << std::endl;
 
     // Tear-down communication layer and quit -----------------------------------
     graphlab::mpi_tools::finalize();
