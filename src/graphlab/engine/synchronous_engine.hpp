@@ -410,6 +410,11 @@ namespace graphlab {
     bool force_abort;
 
     /**
+     * \brief Enable vertex data synchronization
+     */
+    bool enable_sync_vertex_data;
+
+    /**
      * \brief The vertex locks protect access to vertex specific
      * data-structures including
      * \ref graphlab::synchronous_engine::gather_accum
@@ -1007,7 +1012,7 @@ namespace graphlab {
     threads(2*1024*1024 /* 2MB stack per fiber*/),
     thread_barrier(opts.get_ncpus()),
     max_iterations(-1), snapshot_interval(-1), iteration_counter(0),
-    timeout(0), sched_allv(false),
+    timeout(0), sched_allv(false), enable_sync_vertex_data(true),
     vprog_exchange(dc),
     vdata_exchange(dc),
     gather_exchange(dc),
@@ -1048,6 +1053,12 @@ namespace graphlab {
         if (rmi.procid() == 0)
           logstream(LOG_EMPH) << "Engine Option: sched_allv = "
             << sched_allv << std::endl;
+      } else if (opt == "enable_sync_vertex_data") {
+        opts.get_engine_args().get_option("enable_sync_vertex_data",
+                enable_sync_vertex_data);
+        if (rmi.procid() == 0)
+          logstream(LOG_EMPH) << "Engine Option: enable_sync_vertex_data = "
+            << enable_sync_vertex_data << std::endl;
       } else {
         logstream(LOG_FATAL) << "Unexpected Engine Option: " << opt << std::endl;
       }
@@ -1700,7 +1711,8 @@ namespace graphlab {
         // Clear the accumulator to save some memory
         gather_accum[lvid] = gather_type();
         // synchronize the changed vertex data with all mirrors
-        sync_vertex_data(lvid, thread_id);
+        if (enable_sync_vertex_data)
+            sync_vertex_data(lvid, thread_id);
         // determine if a scatter operation is needed
         const vertex_program_type& const_vprog = vertex_programs[lvid];
         const vertex_type const_vertex = vertex;
