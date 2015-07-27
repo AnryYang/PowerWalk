@@ -14,6 +14,7 @@ const float_type RESET_PROB = 0.15;
 float_type threshold = 1e-6;
 int niters;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
+bool no_index = false;
 
 enum phase_t {INIT_GRAPH, COMPUTE};
 phase_t phase = INIT_GRAPH;
@@ -106,6 +107,7 @@ public:
             const gather_type& total) {
         if (context.iteration() == niters-1) {
             vertex.data().flow = flow;
+            flow = ppr_t();
             return;
         }
         ppr_t new_flow;
@@ -188,19 +190,21 @@ public:
 typedef graphlab::synchronous_engine<CollectProgram> engine_type;
 void collect_results(engine_type::icontext_type& context,
         graph_type::vertex_type& vertex) {
-    for (ppr_t::const_iterator it = vertex.data().flow.begin(); it !=
-            vertex.data().flow.end(); it++) {
-        if (it->second < threshold)
-            continue;
-        ppr_gather_t msg(vertex.data().ppr);
-        for (ppr_t::iterator it2 = msg.ppr.begin(); it2 != msg.ppr.end(); it2++)
-            it2->second *= it->second;
-        ppr_t::iterator it2 = vertex.data().residual.find(it->first);
-        if (it2 != vertex.data().residual.end()) {
-            msg.ppr[vertex.id()] += it2->second;
-            vertex.data().residual.erase(it2);
+    if (!no_index) {
+        for (ppr_t::const_iterator it = vertex.data().flow.begin(); it !=
+                vertex.data().flow.end(); it++) {
+            if (it->second < threshold)
+                continue;
+            ppr_gather_t msg(vertex.data().ppr);
+            for (ppr_t::iterator it2 = msg.ppr.begin(); it2 != msg.ppr.end(); it2++)
+                it2->second *= it->second;
+            ppr_t::iterator it2 = vertex.data().residual.find(it->first);
+            if (it2 != vertex.data().residual.end()) {
+                msg.ppr[vertex.id()] += it2->second;
+                vertex.data().residual.erase(it2);
+            }
+            context.signal_vid(it->first, msg);
         }
-        context.signal_vid(it->first, msg);
     }
     for (ppr_t::const_iterator it = vertex.data().residual.begin(); it !=
             vertex.data().residual.end(); it++) {
@@ -248,10 +252,12 @@ int main(int argc, char** argv) {
     graphlab::command_line_options clopts("Multi-Source "
             "Personalized PageRank algorithm.");
     std::string graph_dir;
+    std::string format = "snap";
     clopts.attach_option("graph", graph_dir,
             "The binary graph file that contains preprocessed PPR."
             "Must be provided.");
     clopts.add_positional("graph");
+    clopts.attach_option("format", format, "The graph file format");
     niters = 10;
     clopts.attach_option("niters", niters,
             "Number of iterations");
@@ -270,6 +276,8 @@ int main(int argc, char** argv) {
     int max_num_sources = 1000;
     clopts.attach_option("num_sources", max_num_sources,
             "The number of sources");
+    clopts.attach_option("no_index", no_index,
+            "Compute PPR vectors without preprocessed index.");
 
     if(!clopts.parse(argc, argv)) {
         dc.cout() << "Error in parsing command line arguments." << std::endl;
@@ -282,7 +290,13 @@ int main(int argc, char** argv) {
     double start_time = graphlab::timer::approx_time_seconds();
     phase = INIT_GRAPH;
     graph_type graph(dc, clopts);
-    graph.load_binary(graph_dir);
+    if (no_index) {
+        dc.cout() << "Loading graph in format: "<< format << std::endl;
+        graph.load_format(graph_dir, format);
+    } else {
+        dc.cout() << "Loading graph and index in binary" << std::endl;
+        graph.load_binary(graph_dir);
+    }
     // must call finalize before querying the graph
     graph.finalize();
     dc.cout() << "#vertices: " << graph.num_vertices()
