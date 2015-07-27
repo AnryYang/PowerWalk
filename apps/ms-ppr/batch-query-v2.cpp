@@ -284,6 +284,7 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
+    clopts.get_engine_args().set_option("enable_sync_vertex_data", false);
     clopts.get_engine_args().set_option("max_iterations", niters);
 
     // Build the graph ----------------------------------------------------------
