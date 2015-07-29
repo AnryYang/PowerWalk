@@ -1200,11 +1200,19 @@ namespace graphlab {
   template<typename VertexProgram>
   void synchronous_engine<VertexProgram>::
   internal_signal_gvid(vertex_id_type gvid, const message_type& message) {
-    procid_t proc = graph.master(gvid);
-    if(proc == rmi.procid()) internal_signal_rpc(gvid, message);
-    else rmi.remote_call(proc, 
-                         &synchronous_engine<VertexProgram>::internal_signal_rpc,
-                         gvid, message);
+    /* procid_t proc = graph.master(gvid); */
+    /* if(proc == rmi.procid()) internal_signal_rpc(gvid, message); */
+    /* else rmi.remote_call(proc, */ 
+    /*                      &synchronous_engine<VertexProgram>::internal_signal_rpc, */
+    /*                      gvid, message); */
+    if (graph.contains_vertex(gvid))
+      internal_signal(graph.vertex(gvid), message);
+    else {
+      procid_t proc = graph.master(gvid);
+      rmi.remote_call(proc, 
+                      &synchronous_engine<VertexProgram>::internal_signal_rpc,
+                      gvid, message);
+    }
   } 
 
   template<typename VertexProgram>
