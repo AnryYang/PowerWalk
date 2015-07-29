@@ -4,7 +4,8 @@
 #include <map>
 
 #include <boost/unordered_set.hpp>
-#include <boost/unordered_map.hpp>
+/* #include <boost/unordered_map.hpp> */
+#include <boost/container/flat_map.hpp>
 
 #include <graphlab.hpp>
 
@@ -23,12 +24,20 @@ enum phase_t {INIT_GRAPH, COMPUTE};
 phase_t phase = INIT_GRAPH;
 
 typedef boost::unordered_map<graphlab::vertex_id_type, uint16_t> map_t;
-typedef boost::unordered_map<graphlab::vertex_id_type, float_type> ppr_t;
+/* typedef boost::unordered_map<graphlab::vertex_id_type, float_type> ppr_t; */
+typedef boost::container::flat_map<graphlab::vertex_id_type, float_type> ppr_t;
 
 void combine_ppr(ppr_t& ppr, const ppr_t& other) {
+    std::vector<ppr_t::value_type> tmp;
     for (ppr_t::const_iterator it = other.begin();
-            it != other.end(); ++it)
-        ppr[it->first] += it->second;
+            it != other.end(); ++it) {
+        ppr_t::iterator it2 = ppr.find(it->first);
+        if (it2 != ppr.end())
+            it2->second += it->second;
+        else
+            tmp.push_back(*it);
+    }
+    ppr.insert(tmp.begin(), tmp.end());
 }
 
 struct VertexData {
@@ -52,8 +61,9 @@ struct VertexData {
             float_type sum = 0.0;
             for (map_t::const_iterator it = counter.begin(); it != counter.end(); ++it)
                 sum += it->second;
-            for (map_t::const_iterator it = counter.begin(); it != counter.end(); ++it)
-                ppr[it->first] = it->second / sum;
+            ppr = ppr_t(counter.begin(), counter.end());
+            for (ppr_t::iterator it = ppr.begin(); it != ppr.end(); ++it)
+                it->second /= sum;
         } else {
             iarc >> ppr >> flow >> residual;
         }
@@ -67,7 +77,9 @@ struct ppr_gather_t {
 
     ppr_gather_t() : ppr() { }
 
-    ppr_gather_t(ppr_t ppr) : ppr(ppr) { }
+    ppr_gather_t(ppr_t ppr) : ppr(std::move(ppr)) { }
+    ppr_gather_t(const ppr_gather_t& other) : ppr(other.ppr) { }
+    ppr_gather_t(ppr_gather_t&& other) : ppr(std::move(other.ppr)) { }
 
     void save(graphlab::oarchive& oarc) const {
         oarc << ppr;
@@ -82,9 +94,26 @@ struct ppr_gather_t {
     }
 
     ppr_gather_t& operator+=(const ppr_gather_t& other) {
+        std::vector<ppr_t::value_type> tmp;
         for (ppr_t::const_iterator it = other.ppr.begin();
-                it != other.ppr.end(); ++it)
-            ppr[it->first] += it->second;
+                it != other.ppr.end(); ++it) {
+            ppr_t::iterator it2 = ppr.find(it->first);
+            if (it2 != ppr.end())
+                it2->second += it->second;
+            else
+                tmp.push_back(*it);
+        }
+        ppr.insert(tmp.begin(), tmp.end());
+        return *this;
+    }
+
+    ppr_gather_t& operator=(const ppr_gather_t& other) {
+        ppr = other.ppr;
+        return *this;
+    }
+
+    ppr_gather_t& operator=(ppr_gather_t&& other) {
+        ppr = std::move(other.ppr);
         return *this;
     }
 };
@@ -220,13 +249,15 @@ void collect_results(engine_type::icontext_type& context,
             ppr_t::iterator it2 = vertex.data().residual.find(it->first);
             if (it2 != vertex.data().residual.end()) {
                 msg.ppr[vertex.id()] += it2->second;
-                vertex.data().residual.erase(it2->first);
+                it2->second = 0.0;
             }
             context.signal_vid(it->first, msg);
         }
     }
     for (ppr_t::const_iterator it = vertex.data().residual.begin(); it !=
             vertex.data().residual.end(); ++it) {
+        if (it->second < threshold)
+            continue;
         ppr_gather_t msg;
         msg.ppr[vertex.id()] = it->second;
         context.signal_vid(it->first, msg);
