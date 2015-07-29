@@ -123,7 +123,7 @@ DEPS_PREFIX=$PWD/deps/local
 NO_OPENMP=false
 NO_MPI=false
 NO_TCMALLOC=false
-CPP11=false
+CPP11=true
 VID32=false
 CFLAGS=""
 
