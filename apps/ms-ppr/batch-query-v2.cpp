@@ -9,12 +9,15 @@
 #include <graphlab.hpp>
 
 typedef float float_type;
+
 // Global random reset probability
 const float_type RESET_PROB = 0.15;
+
 float_type threshold = 1e-6;
-int niters;
+int niters = 10;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
 bool no_index = false;
+size_t degree_threshold = -1;
 
 enum phase_t {INIT_GRAPH, COMPUTE};
 phase_t phase = INIT_GRAPH;
@@ -22,13 +25,24 @@ phase_t phase = INIT_GRAPH;
 typedef boost::unordered_map<graphlab::vertex_id_type, uint16_t> map_t;
 typedef boost::unordered_map<graphlab::vertex_id_type, float_type> ppr_t;
 
+void combine_ppr(ppr_t& ppr, const ppr_t& other) {
+    for (ppr_t::const_iterator it = other.begin();
+            it != other.end(); ++it)
+        ppr[it->first] += it->second;
+}
+
 struct VertexData {
     ppr_t ppr, flow, residual;
 
     VertexData() : ppr(), flow(), residual() {}
 
     void save(graphlab::oarchive& oarc) const {
-        oarc << ppr << flow << residual;
+        if (phase == INIT_GRAPH) {
+            map_t counter;
+            oarc << counter;
+        } else {
+            oarc << ppr << flow << residual;
+        }
     }
 
     void load(graphlab::iarchive& iarc) {
@@ -36,9 +50,9 @@ struct VertexData {
             map_t counter;
             iarc >> counter;
             float_type sum = 0.0;
-            for (map_t::const_iterator it = counter.begin(); it != counter.end(); it++)
+            for (map_t::const_iterator it = counter.begin(); it != counter.end(); ++it)
                 sum += it->second;
-            for (map_t::const_iterator it = counter.begin(); it != counter.end(); it++)
+            for (map_t::const_iterator it = counter.begin(); it != counter.end(); ++it)
                 ppr[it->first] = it->second / sum;
         } else {
             iarc >> ppr >> flow >> residual;
@@ -69,7 +83,7 @@ struct ppr_gather_t {
 
     ppr_gather_t& operator+=(const ppr_gather_t& other) {
         for (ppr_t::const_iterator it = other.ppr.begin();
-                it != other.ppr.end(); it++)
+                it != other.ppr.end(); ++it)
             ppr[it->first] += it->second;
         return *this;
     }
@@ -106,22 +120,27 @@ public:
     void apply(icontext_type& context, vertex_type& vertex,
             const gather_type& total) {
         if (context.iteration() == niters-1) {
-            vertex.data().flow = flow;
+            if (degree_threshold == (size_t) -1 || vertex.num_in_edges() >= degree_threshold)
+                combine_ppr(vertex.data().flow, flow);
             flow = ppr_t();
             return;
         }
-        ppr_t new_flow;
-        if (!flow.empty()) {
-            for (ppr_t::const_iterator it = flow.begin(); it != flow.end(); it++) {
-                vertex.data().residual[it->first] += RESET_PROB * it->second;
-                float_type t = (1-RESET_PROB) * it->second;
-                if (vertex.num_out_edges() > 0)
-                    t /= vertex.num_out_edges();
-                if (t > threshold)
-                    new_flow[it->first] = t;
+        if (vertex.num_in_edges() < degree_threshold) {
+            ppr_t new_flow;
+            if (!flow.empty()) {
+                float_type c = (1-RESET_PROB) * (vertex.num_out_edges() > 0 ? 1.0 / vertex.num_out_edges() : 1.0);
+                for (ppr_t::const_iterator it = flow.begin(); it != flow.end(); ++it) {
+                    vertex.data().residual[it->first] += RESET_PROB * it->second;
+                    float_type t = c * it->second;
+                    if (t > threshold)
+                        new_flow[it->first] = t;
+                }
             }
+            flow = new_flow;
+        } else { // vertex is a high-degree hub
+            combine_ppr(vertex.data().flow, flow);
+            flow = ppr_t();
         }
-        flow = new_flow;
     }
 
     edge_dir_type scatter_edges(icontext_type& context,
@@ -192,22 +211,22 @@ void collect_results(engine_type::icontext_type& context,
         graph_type::vertex_type& vertex) {
     if (!no_index) {
         for (ppr_t::const_iterator it = vertex.data().flow.begin(); it !=
-                vertex.data().flow.end(); it++) {
+                vertex.data().flow.end(); ++it) {
             if (it->second < threshold)
                 continue;
             ppr_gather_t msg(vertex.data().ppr);
-            for (ppr_t::iterator it2 = msg.ppr.begin(); it2 != msg.ppr.end(); it2++)
+            for (ppr_t::iterator it2 = msg.ppr.begin(); it2 != msg.ppr.end(); ++it2)
                 it2->second *= it->second;
             ppr_t::iterator it2 = vertex.data().residual.find(it->first);
             if (it2 != vertex.data().residual.end()) {
                 msg.ppr[vertex.id()] += it2->second;
-                vertex.data().residual.erase(it2);
+                vertex.data().residual.erase(it2->first);
             }
             context.signal_vid(it->first, msg);
         }
     }
     for (ppr_t::const_iterator it = vertex.data().residual.begin(); it !=
-            vertex.data().residual.end(); it++) {
+            vertex.data().residual.end(); ++it) {
         ppr_gather_t msg;
         msg.ppr[vertex.id()] = it->second;
         context.signal_vid(it->first, msg);
@@ -233,7 +252,7 @@ struct pagerank_writer {
             std::sort(result.begin(), result.end(), compare);
             size_t len = std::min(topk, result.size());
             strm << " " << len;
-            for (size_t i = 0; i < len; i++)
+            for (size_t i = 0; i < len; ++i)
                 strm << " " << result[i].first;
             strm << std::endl;
         }
@@ -261,6 +280,7 @@ int main(int argc, char** argv) {
     niters = 10;
     clopts.attach_option("niters", niters,
             "Number of iterations");
+    threshold = 1e-6;
     clopts.attach_option("threshold", threshold,
             "The threshold of flow");
     std::string saveprefix;
@@ -276,8 +296,13 @@ int main(int argc, char** argv) {
     int max_num_sources = 1000;
     clopts.attach_option("num_sources", max_num_sources,
             "The number of sources");
+    no_index = false;
     clopts.attach_option("no_index", no_index,
             "Compute PPR vectors without preprocessed index.");
+    degree_threshold = -1;
+    clopts.attach_option("degree_threshold", degree_threshold,
+            "Only compute PPR vectors for vertices with "
+            "in-degree larger than degree_threshold");
 
     if(!clopts.parse(argc, argv)) {
         dc.cout() << "Error in parsing command line arguments." << std::endl;
@@ -310,7 +335,7 @@ int main(int argc, char** argv) {
         std::ifstream fin(sources_file.c_str());
         int num_sources;
         fin >> num_sources;
-        for (int i = 0; i < std::min(num_sources, max_num_sources); i++) {
+        for (int i = 0; i < std::min(num_sources, max_num_sources); ++i) {
             graphlab::vertex_id_type vid;
             fin >> vid;
             sources->insert(vid);

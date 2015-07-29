@@ -9,9 +9,11 @@
 #include <graphlab.hpp>
 
 // Global random reset probability
-double RESET_PROB = 0.15;
+const double RESET_PROB = 0.15;
+
 uint16_t num_walkers = 1000;
-size_t niters;
+size_t niters = 10;
+size_t degree_threshold = 0;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
 
 typedef boost::unordered_map<graphlab::vertex_id_type, uint16_t> map_t;
@@ -65,7 +67,8 @@ public:
             const message_type& msg) {
         if (context.iteration() == 0) {
             walkers = Counter();
-            if (sources == NULL || sources->find(vertex.id()) != sources->end())
+            if ((sources == NULL || sources->find(vertex.id()) != sources->end())
+                    && vertex.num_in_edges() >= degree_threshold)
                 walkers.counter[vertex.id()] = num_walkers;
         } else
             walkers = msg;
@@ -216,6 +219,11 @@ struct pagerank_writer {
     std::string save_edge(graph_type::edge_type e) { return ""; }
 };
 
+graphlab::vertex_id_type count_hubs(graph_type::vertex_type vertex) {
+    return ((sources == NULL || sources->find(vertex.id()) != sources->end())
+            && vertex.num_in_edges() >= degree_threshold);
+}
+
 int main(int argc, char** argv) {
     // Initialize control plane using mpi
     graphlab::mpi_tools::init(argc, argv);
@@ -235,6 +243,7 @@ int main(int argc, char** argv) {
     size_t powerlaw = 0;
     clopts.attach_option("powerlaw", powerlaw,
             "Generate a synthetic powerlaw out-degree graph. ");
+    num_walkers = 1000;
     clopts.attach_option("R", num_walkers,
             "Number of walkers for each vertex");
     niters = 10;
@@ -257,6 +266,10 @@ int main(int argc, char** argv) {
     int max_num_sources = 1000;
     clopts.attach_option("num_sources", max_num_sources,
             "The number of sources");
+    degree_threshold = 0;
+    clopts.attach_option("degree_threshold", degree_threshold,
+            "Only compute PPR vectors for vertices with "
+            "in-degree larger than degree_threshold");
 
     if(!clopts.parse(argc, argv)) {
         dc.cout() << "Error in parsing command line arguments." << std::endl;
@@ -301,6 +314,13 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (degree_threshold > 0) {
+        graphlab::vertex_id_type num_hubs =
+            graph.map_reduce_vertices<graphlab::vertex_id_type>(count_hubs);
+        dc.cout() << "#hubs : " << num_hubs << " (" <<
+            (double) num_hubs / graph.num_vertices() * 100 << "%)" << std::endl;
+    }
+
     // Running The Engine -------------------------------------------------------
     graphlab::timer timer;
     graphlab::synchronous_engine<PreprocessProgram> *engine = new
@@ -324,6 +344,7 @@ int main(int argc, char** argv) {
 
     dc.cout() << "runtime : " << timer.current_time() << " seconds" <<
         std::endl;
+
 
     // Save the final graph -----------------------------------------------------
     start_time = graphlab::timer::approx_time_seconds();
