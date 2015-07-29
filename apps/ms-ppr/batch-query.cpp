@@ -28,8 +28,12 @@ struct VertexData {
     VertexData() : ppr(), schedule(niters) {}
 
     void save(graphlab::oarchive& oarc) const {
-        oarc << ppr;
-        oarc << schedule;
+        if (phase == INIT_GRAPH) {
+            map_t counter;
+            oarc << counter;
+        } else {
+            oarc << ppr << schedule;
+        }
     }
 
     void load(graphlab::iarchive& iarc) {
@@ -42,8 +46,7 @@ struct VertexData {
             for (map_t::const_iterator it = counter.begin(); it != counter.end(); it++)
                 ppr[it->first] = it->second / sum;
         } else {
-            iarc >> ppr;
-            iarc >> schedule;
+            iarc >> ppr >> schedule;
         }
     }
 };
