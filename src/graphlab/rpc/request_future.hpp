@@ -64,7 +64,7 @@ namespace graphlab {
 template <typename T>
 struct request_future {
   typedef typename dc_impl::function_ret_type<T>::type result_type;
-  mutable std::auto_ptr<dc_impl::ireply_container> reply;
+  mutable std::unique_ptr<dc_impl::ireply_container> reply;
   result_type result;
   bool hasval;
 
@@ -93,19 +93,19 @@ struct request_future {
    * \endcode
    */
   request_future(const T& val): 
-      reply(NULL),
+      reply(nullptr),
       result(val), 
       hasval(true) { }
 
   /// copy constructor 
   request_future(const request_future<T>& val): 
-      reply(val.reply),
+      reply(std::move(val.reply)),
       result(val.result), 
       hasval(val.hasval) { }
 
   /// operator=
   request_future& operator=(const request_future<T>& val) {
-    reply = val.reply;
+    reply = std::move(val.reply);
     result = val.result;
     hasval = val.hasval;
     return *this;
@@ -155,7 +155,7 @@ struct request_future {
 template <>
 struct request_future<void> {
   typedef dc_impl::function_ret_type<void>::type result_type;
-  mutable std::auto_ptr<dc_impl::ireply_container> reply;
+  mutable std::unique_ptr<dc_impl::ireply_container> reply;
   bool hasval;
 
   request_future(): 
@@ -167,16 +167,16 @@ struct request_future<void> {
       hasval(false) { }
 
   request_future(int val): 
-      reply(NULL),
+      reply(nullptr),
       hasval(true) { }
  
  
   request_future(const request_future<void>& val): 
-      reply(val.reply),
+      reply(std::move(val.reply)),
       hasval(val.hasval) { }
 
   request_future& operator=(const request_future<void>& val) {
-    reply = val.reply;
+    reply = std::move(val.reply);
     hasval = val.hasval;
     return *this;
   }

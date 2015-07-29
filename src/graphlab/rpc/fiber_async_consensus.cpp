@@ -118,7 +118,7 @@ namespace graphlab {
       // put myself to sleep
       // this here is basically cond[cpuid].wait(m);
       cond[cpuid] = fiber_control::get_tid();
-      ASSERT_NE(cond[cpuid], 0);
+      ASSERT_NE(cond[cpuid], (size_t) 0);
       fiber_control::deschedule_self(&m.m_mut);
       m.lock();
       cond[cpuid] = 0;
