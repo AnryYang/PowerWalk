@@ -47,7 +47,6 @@ namespace archive_detail {
   template <typename InArcType, typename T, typename U>
   struct deserialize_impl<InArcType, boost::container::flat_map<T,U>, false > {
   static void exec(InArcType& iarc, boost::container::flat_map<T,U>& vec){
-    vec.clear();
     // get the number of elements to deserialize
     size_t length = 0;
     iarc >> length;    
@@ -56,7 +55,7 @@ namespace archive_detail {
     for (size_t x = 0; x < length ; ++x){
       iarc >> v[x];
     }
-    vec.insert(v.begin(), v.end());
+    vec = boost::container::flat_map<T,U>(v.begin(), v.end());
   }
   };
 

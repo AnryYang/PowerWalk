@@ -4,7 +4,7 @@
 #include <map>
 
 #include <boost/unordered_set.hpp>
-/* #include <boost/unordered_map.hpp> */
+#include <boost/unordered_map.hpp>
 #include <boost/container/flat_map.hpp>
 
 #include <graphlab.hpp>
@@ -23,25 +23,61 @@ size_t degree_threshold = -1;
 enum phase_t {INIT_GRAPH, COMPUTE};
 phase_t phase = INIT_GRAPH;
 
-typedef boost::unordered_map<graphlab::vertex_id_type, uint16_t> map_t;
-/* typedef boost::unordered_map<graphlab::vertex_id_type, float_type> ppr_t; */
-typedef boost::container::flat_map<graphlab::vertex_id_type, float_type> ppr_t;
+typedef boost::container::flat_map<graphlab::vertex_id_type, uint16_t> map_t;
+typedef boost::container::flat_map<graphlab::vertex_id_type, float_type> vec_map_t;
+typedef boost::unordered_map<graphlab::vertex_id_type, float_type> vec_map2_t;
 
-void combine_ppr(ppr_t& ppr, const ppr_t& other) {
-    std::vector<ppr_t::value_type> tmp;
-    for (ppr_t::const_iterator it = other.begin();
-            it != other.end(); ++it) {
-        ppr_t::iterator it2 = ppr.find(it->first);
-        if (it2 != ppr.end())
-            it2->second += it->second;
-        else
-            tmp.push_back(*it);
+template <typename T>
+struct vec_type {
+    typedef T map_type;
+
+    T val;
+
+    vec_type() : val() { }
+
+    vec_type(T&& val) : val(std::move(val)) { }
+    vec_type(const vec_type& other) : val(other.val) { }
+    vec_type(vec_type&& other) : val(std::move(other.val)) { }
+
+    inline void save(graphlab::oarchive& oarc) const {
+        oarc << val;
     }
-    ppr.insert(tmp.begin(), tmp.end());
-}
+
+    inline void load(graphlab::iarchive& iarc) {
+        iarc >> val;
+    }
+
+    inline bool empty() const {
+        return val.empty();
+    }
+
+    inline void clear() {
+        val.clear();
+    }
+
+    vec_type& operator+=(const vec_type& other) {
+        for (auto it = other.val.begin(); it != other.val.end(); ++it) {
+            val[it->first] += it->second;
+        }
+        return *this;
+    }
+
+    vec_type& operator=(const vec_type& other) {
+        val = other.val;
+        return *this;
+    }
+
+    vec_type& operator=(vec_type&& other) {
+        val = std::move(other.val);
+        return *this;
+    }
+};
+
+typedef vec_type<vec_map_t> vec_t;
+typedef vec_type<vec_map2_t> vec2_t;
 
 struct VertexData {
-    ppr_t ppr, flow, residual;
+    vec_t ppr, flow, residual;
 
     VertexData() : ppr(), flow(), residual() {}
 
@@ -59,11 +95,12 @@ struct VertexData {
             map_t counter;
             iarc >> counter;
             float_type sum = 0.0;
-            for (map_t::const_iterator it = counter.begin(); it != counter.end(); ++it)
+            for (auto it = counter.begin(); it != counter.end(); ++it)
                 sum += it->second;
-            ppr = ppr_t(counter.begin(), counter.end());
-            for (ppr_t::iterator it = ppr.begin(); it != ppr.end(); ++it)
+            vec_t::map_type val(counter.begin(), counter.end());
+            for (auto it = val.begin(); it != val.end(); ++it)
                 it->second /= sum;
+            ppr.val = std::move(val);
         } else {
             iarc >> ppr >> flow >> residual;
         }
@@ -72,68 +109,24 @@ struct VertexData {
 
 typedef graphlab::empty EdgeData; // no edge data
 
-struct ppr_gather_t {
-    ppr_t ppr;
-
-    ppr_gather_t() : ppr() { }
-
-    ppr_gather_t(ppr_t ppr) : ppr(std::move(ppr)) { }
-    ppr_gather_t(const ppr_gather_t& other) : ppr(other.ppr) { }
-    ppr_gather_t(ppr_gather_t&& other) : ppr(std::move(other.ppr)) { }
-
-    void save(graphlab::oarchive& oarc) const {
-        oarc << ppr;
-    }
-
-    void load(graphlab::iarchive& iarc) {
-        iarc >> ppr;
-    }
-
-    bool empty() const {
-        return ppr.empty();
-    }
-
-    ppr_gather_t& operator+=(const ppr_gather_t& other) {
-        std::vector<ppr_t::value_type> tmp;
-        for (ppr_t::const_iterator it = other.ppr.begin();
-                it != other.ppr.end(); ++it) {
-            ppr_t::iterator it2 = ppr.find(it->first);
-            if (it2 != ppr.end())
-                it2->second += it->second;
-            else
-                tmp.push_back(*it);
-        }
-        ppr.insert(tmp.begin(), tmp.end());
-        return *this;
-    }
-
-    ppr_gather_t& operator=(const ppr_gather_t& other) {
-        ppr = other.ppr;
-        return *this;
-    }
-
-    ppr_gather_t& operator=(ppr_gather_t&& other) {
-        ppr = std::move(other.ppr);
-        return *this;
-    }
-};
-
 // The graph type is determined by the vertex and edge data types
 typedef graphlab::distributed_graph<VertexData, EdgeData> graph_type;
 
 class DecompositionProgram : public graphlab::ivertex_program<graph_type,
-    graphlab::empty, ppr_gather_t> {
+    graphlab::empty, vec_t> {
 private:
-    ppr_t flow;
+    message_type flow;
 
 public:
+    DecompositionProgram() : flow() {}
+
     void init(icontext_type& context, const vertex_type& vertex,
             const message_type& msg) {
         if (context.iteration() == 0) {
             if (sources == NULL || sources->find(vertex.id()) != sources->end())
-                flow[vertex.id()] = 1.0;
+                flow.val[vertex.id()] = 1.0;
         } else
-            flow = msg.ppr;
+            flow = std::move(msg);
     }
 
     edge_dir_type gather_edges(icontext_type& context,
@@ -150,25 +143,25 @@ public:
             const gather_type& total) {
         if (context.iteration() == niters-1) {
             if (degree_threshold == (size_t) -1 || vertex.num_in_edges() >= degree_threshold)
-                combine_ppr(vertex.data().flow, flow);
-            flow = ppr_t();
+                vertex.data().flow += flow;
+            flow.clear();
             return;
         }
         if (vertex.num_in_edges() < degree_threshold) {
-            ppr_t new_flow;
+            vec_t new_flow;
             if (!flow.empty()) {
                 float_type c = (1-RESET_PROB) * (vertex.num_out_edges() > 0 ? 1.0 / vertex.num_out_edges() : 1.0);
-                for (ppr_t::const_iterator it = flow.begin(); it != flow.end(); ++it) {
-                    vertex.data().residual[it->first] += RESET_PROB * it->second;
+                for (auto it = flow.val.begin(); it != flow.val.end(); ++it) {
+                    vertex.data().residual.val[it->first] += RESET_PROB * it->second;
                     float_type t = c * it->second;
                     if (t > threshold)
-                        new_flow[it->first] = t;
+                        new_flow.val[it->first] = t;
                 }
             }
-            flow = new_flow;
+            flow = std::move(new_flow);
         } else { // vertex is a high-degree hub
-            combine_ppr(vertex.data().flow, flow);
-            flow = ppr_t();
+            vertex.data().flow += flow;
+            flow.clear();
         }
     }
 
@@ -182,7 +175,7 @@ public:
 
     void scatter(icontext_type& context, const vertex_type& vertex,
             edge_type& edge) const {
-        context.signal(edge.target(), ppr_gather_t(flow));
+        context.signal(edge.target(), vec_t(flow));
     }
 
     void save(graphlab::oarchive& oarc) const {
@@ -195,14 +188,14 @@ public:
 };
 
 class CollectProgram : public graphlab::ivertex_program<graph_type,
-    graphlab::empty, ppr_gather_t> {
+    graphlab::empty, vec2_t> {
 private:
-    ppr_t ppr;
+    message_type ppr;
 
 public:
     void init(icontext_type& context, const vertex_type& vertex,
             const message_type& msg) {
-        ppr = msg.ppr;
+        ppr = std::move(msg);
     }
 
     edge_dir_type gather_edges(icontext_type& context,
@@ -217,8 +210,9 @@ public:
 
     void apply(icontext_type& context, vertex_type& vertex,
             const gather_type& total) {
-        if (!ppr.empty())
-            vertex.data().ppr = ppr;
+        if (!ppr.empty()) {
+            vertex.data().ppr.val = vec_t::map_type(ppr.val.begin(), ppr.val.end());
+        }
     }
 
     edge_dir_type scatter_edges(icontext_type& context,
@@ -239,29 +233,33 @@ typedef graphlab::synchronous_engine<CollectProgram> engine_type;
 void collect_results(engine_type::icontext_type& context,
         graph_type::vertex_type& vertex) {
     if (!no_index) {
-        for (ppr_t::const_iterator it = vertex.data().flow.begin(); it !=
-                vertex.data().flow.end(); ++it) {
+        for (auto it = vertex.data().flow.val.begin(); it !=
+                vertex.data().flow.val.end(); ++it) {
             if (it->second < threshold)
                 continue;
-            ppr_gather_t msg(vertex.data().ppr);
-            for (ppr_t::iterator it2 = msg.ppr.begin(); it2 != msg.ppr.end(); ++it2)
+            engine_type::message_type::map_type val(
+                    vertex.data().ppr.val.begin(),
+                    vertex.data().ppr.val.end());
+            for (auto it2 = val.begin(); it2 != val.end(); ++it2)
                 it2->second *= it->second;
-            ppr_t::iterator it2 = vertex.data().residual.find(it->first);
-            if (it2 != vertex.data().residual.end()) {
-                msg.ppr[vertex.id()] += it2->second;
+            auto it2 = vertex.data().residual.val.find(it->first);
+            if (it2 != vertex.data().residual.val.end()) {
+                val[vertex.id()] += it2->second;
                 it2->second = 0.0;
             }
+            engine_type::message_type msg(std::move(val));
             context.signal_vid(it->first, msg);
         }
     }
-    for (ppr_t::const_iterator it = vertex.data().residual.begin(); it !=
-            vertex.data().residual.end(); ++it) {
+    for (auto it = vertex.data().residual.val.begin(); it !=
+            vertex.data().residual.val.end(); ++it) {
         if (it->second < threshold)
             continue;
-        ppr_gather_t msg;
-        msg.ppr[vertex.id()] = it->second;
+        engine_type::message_type msg;
+        msg.val[vertex.id()] = it->second;
         context.signal_vid(it->first, msg);
     }
+    vertex.data().residual.clear();
 }
 
 bool compare(const std::pair<graphlab::vertex_id_type, float_type>& firstElem,
@@ -279,7 +277,7 @@ struct pagerank_writer {
         if (!vertex.data().ppr.empty()) {
             strm << vertex.id();
             std::vector<std::pair<graphlab::vertex_id_type, float_type> >
-                result(vertex.data().ppr.begin(), vertex.data().ppr.end());
+                result(vertex.data().ppr.val.begin(), vertex.data().ppr.val.end());
             std::sort(result.begin(), result.end(), compare);
             size_t len = std::min(topk, result.size());
             strm << " " << len;
