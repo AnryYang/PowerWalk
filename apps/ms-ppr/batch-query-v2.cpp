@@ -14,11 +14,11 @@ typedef float float_type;
 // Global random reset probability
 const float_type RESET_PROB = 0.15;
 
-float_type threshold = 1e-6;
-int niters = 10;
+float_type threshold;
+int niters;
+bool no_index;
+size_t degree_threshold;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
-bool no_index = false;
-size_t degree_threshold = -1;
 
 enum phase_t {INIT_GRAPH, COMPUTE};
 phase_t phase = INIT_GRAPH;
@@ -309,7 +309,7 @@ int main(int argc, char** argv) {
     niters = 10;
     clopts.attach_option("niters", niters,
             "Number of iterations");
-    threshold = 1e-6;
+    threshold = 1e-4;
     clopts.attach_option("threshold", threshold,
             "The threshold of flow");
     std::string saveprefix;

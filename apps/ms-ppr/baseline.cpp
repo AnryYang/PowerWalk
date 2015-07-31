@@ -11,9 +11,9 @@
 // Global random reset probability
 const double RESET_PROB = 0.15;
 
-uint16_t num_walkers = 1000;
-size_t niters = 10;
-size_t degree_threshold = 0;
+uint16_t num_walkers;
+size_t niters;
+size_t degree_threshold;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
 
 typedef boost::unordered_map<graphlab::vertex_id_type, uint16_t> map_t;
