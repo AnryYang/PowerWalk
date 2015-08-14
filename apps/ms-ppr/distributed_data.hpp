@@ -17,6 +17,16 @@
 
 #include <graphlab/macros_def.hpp>
 namespace graphlab {
+    template<typename Map, typename PlusEqual>
+    struct map_plusequal {
+        PlusEqual plusequal;
+        map_plusequal(PlusEqual plusequal) : plusequal(plusequal) { }
+        void operator()(Map& a, const Map& b) {
+            for (auto it = b.begin(); it != b.end(); ++it) {
+                plusequal(a[it->first], it->second);
+            }
+        }
+    };
 
     template<typename Data>
     class distributed_data {
@@ -59,6 +69,12 @@ namespace graphlab {
         void unlock(graphlab::vertex_id_type v) {
             auto it = vlocks.find(v);
             it->second.unlock();
+        }
+
+        template <typename PlusEqual>
+        void synchronize(PlusEqual plusequal) {
+            map_plusequal<vid2data_map_type, PlusEqual> func(plusequal);
+            rmi.all_reduce2(local_data, func);
         }
     };
 } // end of namespace graphlab

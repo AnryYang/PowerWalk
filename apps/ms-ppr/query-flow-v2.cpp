@@ -31,6 +31,12 @@ typedef boost::unordered_map<graphlab::vertex_id_type, float_type> vec_map2_t;
 
 graphlab::distributed_data<vec_map2_t> *results = NULL;
 
+void plusequal(vec_map2_t& a, const vec_map2_t& b) {
+    for (auto it = b.begin(); it != b.end(); ++it) {
+        a[it->first] += it->second;
+    }
+}
+
 template <typename T>
 struct vec_type {
     typedef T map_type;
@@ -78,7 +84,6 @@ struct vec_type {
 };
 
 typedef vec_type<vec_map_t> vec_t;
-typedef vec_type<vec_map2_t> vec2_t;
 
 struct VertexData {
     vec_t ppr, flow, residual;
@@ -198,7 +203,7 @@ graphlab::empty sum_up(const graph_type::vertex_type& vertex) {
             if (it->second < threshold)
                 continue;
 
-            vec_map2_t& result = results->get_data(it->first);
+            auto& result = results->get_data(it->first);
             results->lock(it->first);
 
             for (auto it2 = vertex.data().ppr.val.begin(); it2 !=
@@ -215,7 +220,7 @@ graphlab::empty sum_up(const graph_type::vertex_type& vertex) {
             vertex.data().residual.val.end(); ++it) {
         if (it->second < threshold)
             continue;
-        vec_map2_t& result = results->get_data(it->first);
+        auto& result = results->get_data(it->first);
         results->lock(it->first);
         result[vertex.id()] += it->second;
         results->unlock(it->first);
@@ -238,7 +243,7 @@ struct pagerank_writer {
         std::stringstream strm;
         if (sources->find(vertex.id()) != sources->end()) {
             strm << vertex.id();
-            vec_map2_t& ppr = results->get_data(vertex.id());
+            auto& ppr = results->get_data(vertex.id());
             std::vector<std::pair<graphlab::vertex_id_type, float_type> >
                 result(ppr.begin(), ppr.end());
             std::sort(result.begin(), result.end(), compare);
@@ -350,6 +355,7 @@ int main(int argc, char** argv) {
     results = new graphlab::distributed_data<vec_map2_t>(dc, sources);
     start_time = graphlab::timer::approx_time_seconds();
     graph.map_reduce_vertices<graphlab::empty>(sum_up);
+    results->synchronize(plusequal);
     runtime = graphlab::timer::approx_time_seconds() - start_time;
     dc.cout() << "sum-up : " << runtime << " seconds" << std::endl;
 
