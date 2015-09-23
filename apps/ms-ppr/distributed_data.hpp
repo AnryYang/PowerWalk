@@ -54,6 +54,7 @@ namespace graphlab {
 
         typedef boost::unordered_map<graphlab::vertex_id_type, Data> vid2data_map_type;
         typedef boost::unordered_map<graphlab::vertex_id_type, simple_spinlock> lock_manager_type;
+        typedef void (*PlusEqual) (data_type& a, const data_type& b);
 
     private:
         // creates a local dc_dist_object context
@@ -61,12 +62,14 @@ namespace graphlab {
 
         vid2data_map_type local_data;
         lock_manager_type vlocks;
+        PlusEqual plusequal;
 
     public:
         distributed_data(distributed_control& dc,
-                boost::unordered_set<graphlab::vertex_id_type>* sources):
-            rmi(dc, this) {
-            foreach(const graphlab::vertex_id_type& source, *sources) {
+                boost::unordered_set<graphlab::vertex_id_type>* sources,
+                PlusEqual plusequal):
+            rmi(dc, this), plusequal(plusequal) {
+            for (auto const& source: *sources) {
                 local_data[source] = Data();
                 vlocks[source] = simple_spinlock();
             }
@@ -88,10 +91,25 @@ namespace graphlab {
             it->second.unlock();
         }
 
-        template <typename PlusEqual>
-        void synchronize(PlusEqual plusequal) {
+        void synchronize() {
             map_plusequal<vid2data_map_type, PlusEqual> func(plusequal);
             rmi.all_reduce2(local_data, func);
+        }
+
+        void add(graphlab::vertex_id_type v, data_type data) {
+            vlocks[v].lock();
+            plusequal(local_data[v], data);
+            vlocks[v].unlock();
+        }
+
+        void reduce2one() {
+            if (rmi.procid() > 0) {
+                rmi.cout() << "machine " << rmi.procid() << " synchronizing the results" << std::endl;
+                for (auto const& kv: local_data) {
+                    rmi.remote_call(0, &distributed_data::add, kv.first,
+                            kv.second);
+                }
+            }
         }
     };
 } // end of namespace graphlab

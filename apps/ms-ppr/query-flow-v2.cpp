@@ -369,14 +369,15 @@ int main(int argc, char** argv) {
         " seconds" << std::endl;
     delete engine;
 
-    results = new graphlab::distributed_data<vec_map2_t>(dc, sources);
+    results = new graphlab::distributed_data<vec_map2_t>(dc, sources, plusequal);
     start_time = graphlab::timer::approx_time_seconds();
     graph.map_reduce_vertices<graphlab::empty>(sum_up);
     runtime = graphlab::timer::approx_time_seconds() - start_time;
     dc.cout() << "sum-up : " << runtime << " seconds" << std::endl;
 
     start_time = graphlab::timer::approx_time_seconds();
-    results->synchronize(plusequal);
+    /* results->synchronize(); */
+    results->reduce2one();
     runtime = graphlab::timer::approx_time_seconds() - start_time;
     dc.cout() << "synchronize : " << runtime << " seconds" << std::endl;
 
