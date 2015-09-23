@@ -275,6 +275,23 @@ struct pagerank_writer {
     std::string save_edge(graph_type::edge_type e) { return ""; }
 };
 
+void save(std::string filename, size_t topk) {
+    std::ofstream fout(filename.c_str());
+
+    for (auto const& source: *sources) {
+        fout << source;
+        auto& ppr = results->get_data(source);
+        std::vector<std::pair<graphlab::vertex_id_type, float_type> >
+            result(ppr.begin(), ppr.end());
+        std::sort(result.begin(), result.end(), compare);
+        size_t len = std::min(topk, result.size());
+        fout << " " << len;
+        for (size_t i = 0; i < len; ++i)
+            fout << " " << result[i].first;
+        fout << std::endl;
+    }
+}
+
 int main(int argc, char** argv) {
     // Initialize control plane using mpi
     graphlab::mpi_tools::init(argc, argv);
@@ -387,10 +404,12 @@ int main(int argc, char** argv) {
     // Save the final graph -----------------------------------------------------
     start_time = graphlab::timer::approx_time_seconds();
     if (saveprefix != "") {
-        graph.save(saveprefix, pagerank_writer(topk),
-                false,    // do not gzip
-                true,     // save vertices
-                false);   // do not save edges
+        /* graph.save(saveprefix, pagerank_writer(topk), */
+        /*         false,    // do not gzip */
+        /*         true,     // save vertices */
+        /*         false);   // do not save edges */
+        if (dc.procid() == 0)
+            save(saveprefix, topk);
     }
     delete sources;
     runtime = graphlab::timer::approx_time_seconds() - start_time;

@@ -104,7 +104,6 @@ namespace graphlab {
 
         void reduce2one() {
             if (rmi.procid() > 0) {
-                rmi.cout() << "machine " << rmi.procid() << " synchronizing the results" << std::endl;
                 for (auto const& kv: local_data) {
                     rmi.remote_call(0, &distributed_data::add, kv.first,
                             kv.second);
