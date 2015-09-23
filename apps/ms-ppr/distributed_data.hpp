@@ -109,6 +109,7 @@ namespace graphlab {
                             kv.second);
                 }
             }
+            rmi.full_barrier();
         }
     };
 } // end of namespace graphlab
