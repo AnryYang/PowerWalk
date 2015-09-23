@@ -355,9 +355,13 @@ int main(int argc, char** argv) {
     results = new graphlab::distributed_data<vec_map2_t>(dc, sources);
     start_time = graphlab::timer::approx_time_seconds();
     graph.map_reduce_vertices<graphlab::empty>(sum_up);
-    results->synchronize(plusequal);
     runtime = graphlab::timer::approx_time_seconds() - start_time;
     dc.cout() << "sum-up : " << runtime << " seconds" << std::endl;
+
+    start_time = graphlab::timer::approx_time_seconds();
+    results->synchronize(plusequal);
+    runtime = graphlab::timer::approx_time_seconds() - start_time;
+    dc.cout() << "synchronize : " << runtime << " seconds" << std::endl;
 
     dc.cout() << "runtime : " << timer.current_time() << " seconds" <<
         std::endl;
