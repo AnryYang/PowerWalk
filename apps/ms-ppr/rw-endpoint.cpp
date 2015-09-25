@@ -340,9 +340,9 @@ int main(int argc, char** argv) {
     }
 
     // Running The Engine -------------------------------------------------------
-    graphlab::timer timer;
     graphlab::synchronous_engine<PreprocessProgram> *engine = new
         graphlab::synchronous_engine<PreprocessProgram>(dc, graph, clopts);
+    graphlab::timer timer;
     engine->signal_all();
     engine->start();
     dc.cout() << "jumping : " << engine->elapsed_seconds() << " seconds" <<

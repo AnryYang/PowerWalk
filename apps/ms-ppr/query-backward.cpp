@@ -309,10 +309,10 @@ int main(int argc, char** argv) {
     }
 
     // Running The Engine -------------------------------------------------------
-    graphlab::timer timer;
     phase = COMPUTE;
     graphlab::synchronous_engine<ForwardExpansion> *engine = new
         graphlab::synchronous_engine<ForwardExpansion>(dc, graph, clopts);
+    graphlab::timer timer;
     engine->signal_all();
     engine->start();
     dc.cout() << "forward : " << engine->elapsed_seconds() <<

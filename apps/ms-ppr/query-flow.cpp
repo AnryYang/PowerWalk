@@ -389,10 +389,10 @@ int main(int argc, char** argv) {
     }
 
     // Running The Engine -------------------------------------------------------
-    graphlab::timer timer;
     phase = COMPUTE;
     graphlab::synchronous_engine<DecompositionProgram> *engine = new
         graphlab::synchronous_engine<DecompositionProgram>(dc, graph, clopts);
+    graphlab::timer timer;
     engine->signal_all();
     engine->start();
     dc.cout() << "decomposition : " << engine->elapsed_seconds() <<
