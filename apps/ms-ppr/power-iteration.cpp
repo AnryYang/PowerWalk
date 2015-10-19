@@ -40,7 +40,7 @@ typedef graphlab::distributed_graph<vertex_data_type, edge_data_type> graph_type
 
 /*
  * A simple function used by graph.transform_vertices(init_vertex);
- * to initialize the vertes data.
+ * to initialize the vertex data.
  */
 void init_vertex(graph_type::vertex_type& vertex) {
     if (vertex.id() == source_vertex)
