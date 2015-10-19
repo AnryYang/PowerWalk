@@ -1,6 +1,7 @@
 project(ms-ppr)
 add_graphlab_executable(rw-endpoint rw-endpoint.cpp)
 add_graphlab_executable(rw-fullpath rw-fullpath.cpp)
+add_graphlab_executable(rw-fullpath-async rw-fullpath-async.cpp)
 add_graphlab_executable(query-backward query-backward.cpp)
 add_graphlab_executable(query-flow query-flow.cpp)
 add_graphlab_executable(query-flow-v2 query-flow-v2.cpp)
