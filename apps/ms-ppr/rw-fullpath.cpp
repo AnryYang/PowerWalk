@@ -82,13 +82,7 @@ private:
 public:
     void init(icontext_type& context, const vertex_type& vertex,
             const message_type& msg) {
-        if (context.iteration() == 0) {
-            walkers = Counter();
-            if ((sources == NULL || sources->find(vertex.id()) != sources->end())
-                    && vertex.num_in_edges() >= degree_threshold)
-                walkers.counter[vertex.id()] = num_walkers;
-        } else
-            walkers = msg;
+        walkers = msg;
     }
 
     edge_dir_type gather_edges(icontext_type& context,
@@ -151,6 +145,15 @@ public:
         iarc >> walkers;
     }
 };
+
+void init_vertex(graphlab::synchronous_engine<PreprocessProgram>::icontext_type& context,
+        graph_type::vertex_type& vertex) {
+    Counter walkers;
+    if ((sources == NULL || sources->find(vertex.id()) != sources->end())
+            && vertex.num_in_edges() >= degree_threshold)
+        walkers.counter[vertex.id()] = num_walkers;
+    context.signal(vertex, walkers);
+}
 
 class CollectProgram : public graphlab::ivertex_program<graph_type,
     graphlab::empty, MessageData> {
@@ -342,7 +345,7 @@ int main(int argc, char** argv) {
     graphlab::synchronous_engine<PreprocessProgram> *engine = new
         graphlab::synchronous_engine<PreprocessProgram>(dc, graph, clopts);
     graphlab::timer timer;
-    engine->signal_all();
+    engine->transform_vertices(init_vertex);
     engine->start();
     dc.cout() << "jumping : " << engine->elapsed_seconds() << " seconds" <<
         std::endl;

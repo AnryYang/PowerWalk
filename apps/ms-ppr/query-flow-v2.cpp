@@ -148,11 +148,7 @@ public:
 
     void init(icontext_type& context, const vertex_type& vertex,
             const message_type& msg) {
-        if (context.iteration() == 0) {
-            if (sources->find(vertex.id()) != sources->end())
-                flow.val[vertex.id()] = 1.0;
-        } else
-            flow = std::move(msg);
+        flow = std::move(msg);
     }
 
     edge_dir_type gather_edges(icontext_type& context,
@@ -212,6 +208,15 @@ public:
         iarc >> flow;
     }
 };
+
+void init_vertex(graphlab::synchronous_engine<DecompositionProgram>::icontext_type& context,
+        graph_type::vertex_type& vertex) {
+    if (sources->find(vertex.id()) != sources->end()) {
+        vec_t flow;
+        flow.val[vertex.id()] = 1.0;
+        context.signal(vertex, flow);
+    }
+}
 
 graphlab::empty sum_up(const graph_type::vertex_type& vertex) {
     if (!no_index) {
@@ -380,7 +385,7 @@ int main(int argc, char** argv) {
     graphlab::synchronous_engine<DecompositionProgram> *engine = new
         graphlab::synchronous_engine<DecompositionProgram>(dc, graph, clopts);
     graphlab::timer timer;
-    engine->signal_all();
+    engine->transform_vertices(init_vertex);
     engine->start();
     dc.cout() << "decomposition : " << engine->elapsed_seconds() <<
         " seconds" << std::endl;
