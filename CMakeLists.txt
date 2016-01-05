@@ -148,7 +148,7 @@ install(CODE "execute_process(COMMAND ./scripts/install_deps.sh
 # https://bitbucket.org/eigen/eigen/
 ExternalProject_Add(eigen
   PREFIX ${GraphLab_SOURCE_DIR}/deps/eigen
-  URL https://s3-us-west-2.amazonaws.com/static.graphlab.com/PowerGraph/deps/eigen_3.1.2.tar.bz2
+  URL https://s3.amazonaws.com/static.dato.com/PowerGraph/deps/eigen_3.1.2.tar.bz2 
   URL_MD5 e9c081360dde5e7dcb8eba3c8430fde2
   CONFIGURE_COMMAND ""
   BUILD_COMMAND ""
@@ -183,7 +183,7 @@ ExternalProject_Add(libbz2
 # unordered containers.
 ExternalProject_Add(boost
   PREFIX ${GraphLab_SOURCE_DIR}/deps/boost
-  URL "http://sourceforge.net/projects/boost/files/boost/1.53.0/boost_1_53_0.tar.gz"
+  URL "http://tcpdiag.dl.sourceforge.net/project/boost/boost/1.53.0/boost_1_53_0.tar.gz" 
   URL_MD5 57a9e2047c0f511c4dfcf00eb5eb2fbb
   BUILD_IN_SOURCE 1
   CONFIGURE_COMMAND
@@ -386,8 +386,8 @@ endif()
 
 ExternalProject_Add(zookeeper
   PREFIX ${GraphLab_SOURCE_DIR}/deps/zookeeper
-  URL http://apache.cs.utah.edu/zookeeper/zookeeper-3.4.6/zookeeper-3.4.6.tar.gz
-  URL_MD5 971c379ba65714fd25dc5fe8f14e9ad1
+  URL http://mirror.metrocast.net/apache/zookeeper/zookeeper-3.5.1-alpha/zookeeper-3.5.1-alpha.tar.gz
+  URL_MD5 d85f9751724d3f20f792803b61c4db24
   PATCH_COMMAND ${CMAKE_COMMAND} -E copy_directory ${GraphLab_SOURCE_DIR}/patches/zookeeper/ <SOURCE_DIR>
   BUILD_IN_SOURCE 1
   CONFIGURE_COMMAND ./configure --prefix=<INSTALL_DIR> --disable-shared
@@ -432,7 +432,7 @@ if(NOT NO_JAVAC)
     message(STATUS "Building libhdfs")
     ExternalProject_Add(hadoop
       PREFIX ${GraphLab_SOURCE_DIR}/deps/hadoop
-      URL https://s3-us-west-2.amazonaws.com/static.graphlab.com/PowerGraph/deps/hadoop-1.0.1.tar.gz
+      URL https://s3.amazonaws.com/static.dato.com/PowerGraph/deps/hadoop-1.0.1.tar.gz
 #      URL http://www.gtlib.gatech.edu/pub/apache/hadoop/common/hadoop-1.0.1/hadoop-1.0.1.tar.gz
       URL_MD5 e627d9b688c4de03cba8313bd0bba148
       UPDATE_COMMAND chmod +x <SOURCE_DIR>/src/c++/libhdfs/install-sh <SOURCE_DIR>/src/c++/libhdfs/configure
