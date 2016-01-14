@@ -36,7 +36,6 @@ const float_type RESET_PROB = 0.15;
 float_type threshold;
 int niters;
 bool no_index;
-size_t degree_threshold;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
 
 enum phase_t {INIT_GRAPH, COMPUTE};
@@ -168,27 +167,22 @@ public:
     void apply(icontext_type& context, vertex_type& vertex,
             const gather_type& total) {
         if (context.iteration() == niters-1) {
-            if (degree_threshold == (size_t) -1 || vertex.num_in_edges() >= degree_threshold)
-                vertex.data().flow += flow;
+            vertex.data().flow += flow;
             flow.clear();
             return;
         }
-        if (vertex.num_in_edges() < degree_threshold) {
-            vec_t new_flow;
-            if (!flow.empty()) {
-                float_type c = (1-RESET_PROB) * (vertex.num_out_edges() > 0 ? 1.0 / vertex.num_out_edges() : 1.0);
-                for (auto it = flow.val.begin(); it != flow.val.end(); ++it) {
-                    vertex.data().residual.val[it->first] += RESET_PROB * it->second;
-                    float_type t = c * it->second;
-                    if (t > threshold)
-                        new_flow.val[it->first] = t;
-                }
+
+        vec_t new_flow;
+        if (!flow.empty()) {
+            float_type c = (1-RESET_PROB) * (vertex.num_out_edges() > 0 ? 1.0 / vertex.num_out_edges() : 1.0);
+            for (auto it = flow.val.begin(); it != flow.val.end(); ++it) {
+                vertex.data().residual.val[it->first] += RESET_PROB * it->second;
+                float_type t = c * it->second;
+                if (t > threshold)
+                    new_flow.val[it->first] = t;
             }
-            flow = std::move(new_flow);
-        } else { // vertex is a high-degree hub
-            vertex.data().flow += flow;
-            flow.clear();
         }
+        flow = std::move(new_flow);
     }
 
     edge_dir_type scatter_edges(icontext_type& context,
@@ -330,10 +324,6 @@ int main(int argc, char** argv) {
     no_index = false;
     clopts.attach_option("no_index", no_index,
             "Compute PPR vectors without preprocessed index.");
-    degree_threshold = -1;
-    clopts.attach_option("degree_threshold", degree_threshold,
-            "Only compute PPR vectors for vertices with "
-            "in-degree larger than degree_threshold");
 
     if(!clopts.parse(argc, argv)) {
         dc.cout() << "Error in parsing command line arguments." << std::endl;
