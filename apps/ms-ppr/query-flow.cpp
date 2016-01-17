@@ -100,6 +100,8 @@ struct VertexData {
     void save(graphlab::oarchive& oarc) const {
         if (phase == INIT_GRAPH) {
             map_t counter;
+            for (auto it = ppr.val.begin(); it != ppr.val.end(); ++it)
+                counter[it->first] = it->second * 0xFFFF;
             oarc << counter;
         } else {
             oarc << ppr << flow << residual;
@@ -323,6 +325,10 @@ int main(int argc, char** argv) {
     threshold = 1e-4;
     clopts.attach_option("threshold", threshold,
             "The threshold of flow");
+    std::string bin_prefix;
+    clopts.attach_option("bin_prefix", bin_prefix,
+            "If set, will save the whole graph to a sequence "
+            "of binary files with prefix bin_prefix");
     std::string saveprefix;
     clopts.attach_option("saveprefix", saveprefix,
             "If set, will save the whole graph to a "
@@ -346,7 +352,7 @@ int main(int argc, char** argv) {
     }
 
     clopts.get_engine_args().set_option("enable_sync_vertex_data", false);
-    clopts.get_engine_args().set_option("max_iterations", niters);
+    clopts.get_engine_args().set_option("max_iterations", ++niters);
 
     // Build the graph ----------------------------------------------------------
     double start_time = graphlab::timer::approx_time_seconds();
@@ -405,6 +411,10 @@ int main(int argc, char** argv) {
 
     // Save the final graph -----------------------------------------------------
     start_time = graphlab::timer::approx_time_seconds();
+    if (bin_prefix != "") {
+        phase = INIT_GRAPH;
+        graph.save_binary(bin_prefix);
+    }
     if (saveprefix != "") {
         graph.save(saveprefix, pagerank_writer(topk),
                 false,    // do not gzip

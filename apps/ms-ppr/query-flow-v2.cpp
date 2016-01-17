@@ -331,7 +331,7 @@ int main(int argc, char** argv) {
     }
 
     clopts.get_engine_args().set_option("enable_sync_vertex_data", false);
-    clopts.get_engine_args().set_option("max_iterations", niters);
+    clopts.get_engine_args().set_option("max_iterations", ++niters);
 
     // Build the graph ----------------------------------------------------------
     double start_time = graphlab::timer::approx_time_seconds();
