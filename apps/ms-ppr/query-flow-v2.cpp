@@ -287,6 +287,26 @@ void save(std::string filename, size_t topk) {
     }
 }
 
+bool load_index_from_stream(graph_type* graph, std::istream& in) {
+    while(in.good()) {
+        uint32_t src;
+        in.read(reinterpret_cast<char*>(&src), sizeof(uint32_t));
+        size_t size;
+        in.read(reinterpret_cast<char*>(&size), sizeof(size_t));
+        if (in.fail()) break;
+        VertexData data;
+        for (size_t i = 0; i < size; i++) {
+            uint32_t v;
+            float p;
+            in.read(reinterpret_cast<char*>(&v), sizeof(uint32_t));
+            in.read(reinterpret_cast<char*>(&p), sizeof(float));
+            data.ppr.val[v] = p;
+        }
+        graph->add_vertex(src, data);
+    }
+    return true;
+}
+
 int main(int argc, char** argv) {
     // Initialize control plane using mpi
     graphlab::mpi_tools::init(argc, argv);
@@ -302,6 +322,9 @@ int main(int argc, char** argv) {
             "The binary graph file that contains preprocessed PPR."
             "Must be provided.");
     clopts.add_positional("graph");
+    std::string index_file;
+    clopts.attach_option("index_file", index_file,
+            "The file contains binary indics.");
     clopts.attach_option("format", format, "The graph file format");
     niters = 10;
     clopts.attach_option("niters", niters,
@@ -336,14 +359,21 @@ int main(int argc, char** argv) {
 
     // Build the graph ----------------------------------------------------------
     double start_time = graphlab::timer::approx_time_seconds();
-    phase = INIT_GRAPH;
     graph_type graph(dc, clopts);
     if (no_index) {
+        phase = COMPUTE;
         dc.cout() << "Loading graph in format: "<< format << std::endl;
         graph.load_format(graph_dir, format);
-    } else {
+    } else if (index_file.empty()) {
+        phase = INIT_GRAPH;
         dc.cout() << "Loading graph and index in binary" << std::endl;
         graph.load_binary(graph_dir);
+    } else {
+        phase = COMPUTE;
+        dc.cout() << "Loading graph in format: "<< format << std::endl;
+        graph.load_format(graph_dir, format);
+        dc.cout() << "Loading index in binary" << std::endl;
+        graph.load_direct(index_file, &load_index_from_stream);
     }
     // must call finalize before querying the graph
     graph.finalize();
