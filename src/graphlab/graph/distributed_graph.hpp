@@ -2411,6 +2411,17 @@ namespace graphlab {
       rpc.full_barrier();
     } // end of load random powerlaw
 
+    void load_direct(std::string prefix,
+             boost::function<bool (graph_type*, std::istream&)> parser) {
+      rpc.full_barrier();
+      if(boost::starts_with(prefix, "hdfs://")) {
+        load_direct_from_hdfs(prefix, parser);
+      } else {
+        load_direct_from_posixfs(prefix, parser);
+      }
+      rpc.full_barrier();
+    } // end of load_direct
+
 
     /**
      *  \brief load a graph with a standard format. Must be called on all
@@ -3460,17 +3471,6 @@ namespace graphlab {
       }
       rpc.full_barrier();
     }
-
-    void load_direct(std::string prefix,
-             boost::function<bool (graph_type*, std::istream&)> parser) {
-      rpc.full_barrier();
-      if(boost::starts_with(prefix, "hdfs://")) {
-        load_direct_from_hdfs(prefix, parser);
-      } else {
-        load_direct_from_posixfs(prefix, parser);
-      }
-      rpc.full_barrier();
-    } // end of load
 
     friend class tests::distributed_graph_test;
   }; // End of graph
