@@ -394,6 +394,8 @@ int main(int argc, char** argv) {
         int num_sources = num_sources_vec[i];
         dc.cout() << "num_sources : " << num_sources << std::endl;
         if (sources_file.length() > 0) {
+            if (sources)
+                delete sources;
             sources = new boost::unordered_set<graphlab::vertex_id_type>();
             std::ifstream fin(sources_file.c_str());
             int total_sources;
@@ -411,14 +413,15 @@ int main(int argc, char** argv) {
         phase = COMPUTE;
         graphlab::synchronous_engine<DecompositionProgram> *engine = new
             graphlab::synchronous_engine<DecompositionProgram>(dc, graph, clopts);
+        if (results)
+            delete results;
+        results = new graphlab::distributed_data<vec_map2_t>(dc, sources, plusequal);
         graphlab::timer timer;
         engine->signal_all();
         engine->start();
         dc.cout() << "decomposition : " << engine->elapsed_seconds() <<
             " seconds" << std::endl;
-        delete engine;
 
-        results = new graphlab::distributed_data<vec_map2_t>(dc, sources, plusequal);
         start_time = graphlab::timer::approx_time_seconds();
         graph.map_reduce_vertices<graphlab::empty>(sum_up);
         runtime = graphlab::timer::approx_time_seconds() - start_time;
@@ -432,7 +435,8 @@ int main(int argc, char** argv) {
 
         dc.cout() << "runtime : " << timer.current_time() << " seconds" <<
             std::endl;
-        delete results;
+
+        delete engine;
     }
 
     // Save the final graph -----------------------------------------------------
@@ -445,6 +449,7 @@ int main(int argc, char** argv) {
         if (dc.procid() == 0)
             save(saveprefix, topk);
     }
+    delete results;
     delete sources;
     runtime = graphlab::timer::approx_time_seconds() - start_time;
     dc.cout() << "save : " << runtime << " seconds" << std::endl;

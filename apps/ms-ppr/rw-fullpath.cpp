@@ -366,7 +366,6 @@ int main(int argc, char** argv) {
         engine->start();
         dc.cout() << "jumping : " << engine->elapsed_seconds() << " seconds" <<
             std::endl;
-        delete engine;
 
         clopts.get_engine_args().set_option("max_iterations", 1);
         engine_type engine2(dc, graph, clopts);
@@ -376,11 +375,12 @@ int main(int argc, char** argv) {
         runtime = graphlab::timer::approx_time_seconds() - start_time;
         dc.cout() << "collect : " << runtime << " seconds" << std::endl;
 
-        if (sources)
-            delete sources;
-
         dc.cout() << "runtime : " << timer.current_time() << " seconds" <<
             std::endl;
+
+        delete engine;
+        if (sources)
+            delete sources;
     }
 
 
