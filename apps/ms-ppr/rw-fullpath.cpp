@@ -31,6 +31,7 @@ const double RESET_PROB = 0.15;
 uint16_t num_walkers;
 size_t niters;
 size_t degree_threshold;
+bool long_path;
 boost::unordered_set<graphlab::vertex_id_type> *sources = NULL;
 
 typedef boost::unordered_map<graphlab::vertex_id_type, uint16_t> map_t;
@@ -106,6 +107,11 @@ public:
         vertex.data() += walkers;
         for (map_t::iterator it = walkers.counter.begin(); it != walkers.counter.end(); ) {
             uint16_t new_count = select_prob(it->second);
+            if (long_path && it->second - new_count > 0) {
+                Counter msg;
+                msg.counter[it->first] = it->second - new_count;
+                context.signal_vid(it->first, msg);
+            }
             if (new_count > 0) {
                 it->second = new_count;
                 it++;
@@ -280,13 +286,16 @@ int main(int argc, char** argv) {
     std::string sources_file;
     clopts.attach_option("sources_file", sources_file,
             "The file contains all sources.");
-    int max_num_sources = 1000;
-    clopts.attach_option("num_sources", max_num_sources,
+    std::string num_sources_str = "1000";
+    clopts.attach_option("num_sources", num_sources_str,
             "The number of sources");
     degree_threshold = 0;
     clopts.attach_option("degree_threshold", degree_threshold,
             "Only compute PPR vectors for vertices with "
             "in-degree larger than degree_threshold");
+    long_path = false;
+    clopts.attach_option("long_path", long_path,
+            "Use long a random walk instead of short ones");
 
     if(!clopts.parse(argc, argv)) {
         dc.cout() << "Error in parsing command line arguments." << std::endl;
@@ -294,7 +303,6 @@ int main(int argc, char** argv) {
     }
 
     clopts.get_engine_args().set_option("enable_sync_vertex_data", false);
-    clopts.get_engine_args().set_option("max_iterations", niters);
 
     // Build the graph ----------------------------------------------------------
     double start_time = graphlab::timer::approx_time_seconds();
@@ -319,48 +327,61 @@ int main(int argc, char** argv) {
     double runtime = graphlab::timer::approx_time_seconds() - start_time;
     dc.cout() << "loading : " << runtime << " seconds" << std::endl;
 
-    if (sources_file.length() > 0) {
-        sources = new boost::unordered_set<graphlab::vertex_id_type>();
-        std::ifstream fin(sources_file.c_str());
-        int num_sources;
-        fin >> num_sources;
-        for (int i = 0; i < std::min(num_sources, max_num_sources); i++) {
-            graphlab::vertex_id_type vid;
-            fin >> vid;
-            sources->insert(vid);
+    std::vector<int> num_sources_vec;
+    std::stringstream ss(num_sources_str);
+    int i;
+    while (ss >> i) {
+        num_sources_vec.push_back(i);
+        if (ss.peek() == ',')
+            ss.ignore();
+    }
+    for (size_t i = 0; i < num_sources_vec.size(); i++) {
+        int num_sources = num_sources_vec[i];
+        dc.cout() << "num_sources : " << num_sources << std::endl;
+        if (sources_file.length() > 0) {
+            sources = new boost::unordered_set<graphlab::vertex_id_type>();
+            std::ifstream fin(sources_file.c_str());
+            int total_sources;
+            fin >> total_sources;
+            for (int i = 0; i < std::min(total_sources, num_sources); i++) {
+                graphlab::vertex_id_type vid;
+                fin >> vid;
+                sources->insert(vid);
+            }
         }
+
+        if (degree_threshold > 0) {
+            graphlab::vertex_id_type num_hubs =
+                graph.map_reduce_vertices<graphlab::vertex_id_type>(count_hubs);
+            dc.cout() << "#hubs : " << num_hubs << " (" <<
+                (double) num_hubs / graph.num_vertices() * 100 << "%)" << std::endl;
+        }
+
+        // Running The Engine -------------------------------------------------------
+        clopts.get_engine_args().set_option("max_iterations", niters);
+        graphlab::synchronous_engine<PreprocessProgram> *engine = new
+            graphlab::synchronous_engine<PreprocessProgram>(dc, graph, clopts);
+        graphlab::timer timer;
+        engine->signal_all();
+        engine->start();
+        dc.cout() << "jumping : " << engine->elapsed_seconds() << " seconds" <<
+            std::endl;
+        delete engine;
+
+        clopts.get_engine_args().set_option("max_iterations", 1);
+        engine_type engine2(dc, graph, clopts);
+        start_time = graphlab::timer::approx_time_seconds();
+        engine2.transform_vertices(collect_results);
+        engine2.start();
+        runtime = graphlab::timer::approx_time_seconds() - start_time;
+        dc.cout() << "collect : " << runtime << " seconds" << std::endl;
+
+        if (sources)
+            delete sources;
+
+        dc.cout() << "runtime : " << timer.current_time() << " seconds" <<
+            std::endl;
     }
-
-    if (degree_threshold > 0) {
-        graphlab::vertex_id_type num_hubs =
-            graph.map_reduce_vertices<graphlab::vertex_id_type>(count_hubs);
-        dc.cout() << "#hubs : " << num_hubs << " (" <<
-            (double) num_hubs / graph.num_vertices() * 100 << "%)" << std::endl;
-    }
-
-    // Running The Engine -------------------------------------------------------
-    graphlab::synchronous_engine<PreprocessProgram> *engine = new
-        graphlab::synchronous_engine<PreprocessProgram>(dc, graph, clopts);
-    graphlab::timer timer;
-    engine->signal_all();
-    engine->start();
-    dc.cout() << "jumping : " << engine->elapsed_seconds() << " seconds" <<
-        std::endl;
-    delete engine;
-
-    clopts.get_engine_args().set_option("max_iterations", 1);
-    engine_type engine2(dc, graph, clopts);
-    start_time = graphlab::timer::approx_time_seconds();
-    engine2.transform_vertices(collect_results);
-    engine2.start();
-    runtime = graphlab::timer::approx_time_seconds() - start_time;
-    dc.cout() << "collect : " << runtime << " seconds" << std::endl;
-
-    if (sources)
-        delete sources;
-
-    dc.cout() << "runtime : " << timer.current_time() << " seconds" <<
-        std::endl;
 
 
     // Save the final graph -----------------------------------------------------

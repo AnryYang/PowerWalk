@@ -342,8 +342,8 @@ int main(int argc, char** argv) {
     std::string sources_file;
     clopts.attach_option("sources_file", sources_file,
             "The file contains all sources.");
-    int max_num_sources = 1000;
-    clopts.attach_option("num_sources", max_num_sources,
+    std::string num_sources_str = "1000";
+    clopts.attach_option("num_sources", num_sources_str,
             "The number of sources");
     no_index = false;
     clopts.attach_option("no_index", no_index,
@@ -382,45 +382,58 @@ int main(int argc, char** argv) {
     double runtime = graphlab::timer::approx_time_seconds() - start_time;
     dc.cout() << "loading : " << runtime << " seconds" << std::endl;
 
-    if (sources_file.length() > 0) {
-        sources = new boost::unordered_set<graphlab::vertex_id_type>();
-        std::ifstream fin(sources_file.c_str());
-        int num_sources;
-        fin >> num_sources;
-        for (int i = 0; i < std::min(num_sources, max_num_sources); ++i) {
-            graphlab::vertex_id_type vid;
-            fin >> vid;
-            sources->insert(vid);
-        }
-    } else {
-        assert(true);
+    std::vector<int> num_sources_vec;
+    std::stringstream ss(num_sources_str);
+    int i;
+    while (ss >> i) {
+        num_sources_vec.push_back(i);
+        if (ss.peek() == ',')
+            ss.ignore();
     }
+    for (size_t i = 0; i < num_sources_vec.size(); i++) {
+        int num_sources = num_sources_vec[i];
+        dc.cout() << "num_sources : " << num_sources << std::endl;
+        if (sources_file.length() > 0) {
+            sources = new boost::unordered_set<graphlab::vertex_id_type>();
+            std::ifstream fin(sources_file.c_str());
+            int total_sources;
+            fin >> total_sources;
+            for (int i = 0; i < std::min(total_sources, num_sources); ++i) {
+                graphlab::vertex_id_type vid;
+                fin >> vid;
+                sources->insert(vid);
+            }
+        } else {
+            assert(true);
+        }
 
-    // Running The Engine -------------------------------------------------------
-    phase = COMPUTE;
-    graphlab::synchronous_engine<DecompositionProgram> *engine = new
-        graphlab::synchronous_engine<DecompositionProgram>(dc, graph, clopts);
-    graphlab::timer timer;
-    engine->signal_all();
-    engine->start();
-    dc.cout() << "decomposition : " << engine->elapsed_seconds() <<
-        " seconds" << std::endl;
-    delete engine;
+        // Running The Engine -------------------------------------------------------
+        phase = COMPUTE;
+        graphlab::synchronous_engine<DecompositionProgram> *engine = new
+            graphlab::synchronous_engine<DecompositionProgram>(dc, graph, clopts);
+        graphlab::timer timer;
+        engine->signal_all();
+        engine->start();
+        dc.cout() << "decomposition : " << engine->elapsed_seconds() <<
+            " seconds" << std::endl;
+        delete engine;
 
-    results = new graphlab::distributed_data<vec_map2_t>(dc, sources, plusequal);
-    start_time = graphlab::timer::approx_time_seconds();
-    graph.map_reduce_vertices<graphlab::empty>(sum_up);
-    runtime = graphlab::timer::approx_time_seconds() - start_time;
-    dc.cout() << "sum-up : " << runtime << " seconds" << std::endl;
+        results = new graphlab::distributed_data<vec_map2_t>(dc, sources, plusequal);
+        start_time = graphlab::timer::approx_time_seconds();
+        graph.map_reduce_vertices<graphlab::empty>(sum_up);
+        runtime = graphlab::timer::approx_time_seconds() - start_time;
+        dc.cout() << "sum-up : " << runtime << " seconds" << std::endl;
 
-    start_time = graphlab::timer::approx_time_seconds();
-    /* results->synchronize(); */
-    results->reduce2one();
-    runtime = graphlab::timer::approx_time_seconds() - start_time;
-    dc.cout() << "synchronize : " << runtime << " seconds" << std::endl;
+        start_time = graphlab::timer::approx_time_seconds();
+        /* results->synchronize(); */
+        results->reduce2one();
+        runtime = graphlab::timer::approx_time_seconds() - start_time;
+        dc.cout() << "synchronize : " << runtime << " seconds" << std::endl;
 
-    dc.cout() << "runtime : " << timer.current_time() << " seconds" <<
-        std::endl;
+        dc.cout() << "runtime : " << timer.current_time() << " seconds" <<
+            std::endl;
+        delete results;
+    }
 
     // Save the final graph -----------------------------------------------------
     start_time = graphlab::timer::approx_time_seconds();
