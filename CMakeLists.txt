@@ -183,7 +183,7 @@ ExternalProject_Add(libbz2
 # unordered containers.
 ExternalProject_Add(boost
   PREFIX ${GraphLab_SOURCE_DIR}/deps/boost
-  URL "http://tcpdiag.dl.sourceforge.net/project/boost/boost/1.53.0/boost_1_53_0.tar.gz" 
+  URL "https://sourceforge.net/projects/boost/files/boost/1.53.0/boost_1_53_0.tar.gz"
   URL_MD5 57a9e2047c0f511c4dfcf00eb5eb2fbb
   BUILD_IN_SOURCE 1
   CONFIGURE_COMMAND
@@ -347,16 +347,16 @@ endmacro(requires_opencv)
 if (APPLE)
   ExternalProject_Add(libevent
     PREFIX ${GraphLab_SOURCE_DIR}/deps/event
-    URL http://iweb.dl.sourceforge.net/project/levent/libevent/libevent-2.0/libevent-2.0.18-stable.tar.gz
-    URL_MD5 aa1ce9bc0dee7b8084f6855765f2c86a
+    URL https://github.com/libevent/libevent/releases/download/release-2.0.22-stable/libevent-2.0.22-stable.tar.gz
+    URL_MD5 c4c56f986aa985677ca1db89630a2e11
     CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --disable-openssl --enable-shared=no
     INSTALL_DIR ${GraphLab_SOURCE_DIR}/deps/local
   )
 else()
   ExternalProject_Add(libevent
     PREFIX ${GraphLab_SOURCE_DIR}/deps/event
-    URL http://iweb.dl.sourceforge.net/project/levent/libevent/libevent-2.0/libevent-2.0.18-stable.tar.gz
-    URL_MD5 aa1ce9bc0dee7b8084f6855765f2c86a
+    URL https://github.com/libevent/libevent/releases/download/release-2.0.22-stable/libevent-2.0.22-stable.tar.gz
+    URL_MD5 c4c56f986aa985677ca1db89630a2e11
     CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --disable-openssl --enable-shared=no
     INSTALL_DIR ${GraphLab_SOURCE_DIR}/deps/local
     INSTALL_COMMAND prefix=<INSTALL_DIR>/ make install && ${GraphLab_SOURCE_DIR}/patches/libevent_clean_and_remap.sh <INSTALL_DIR>/lib
