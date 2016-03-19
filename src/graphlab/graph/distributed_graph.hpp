@@ -76,6 +76,7 @@
 #include <graphlab/graph/graph_gather_apply.hpp>
 #include <graphlab/graph/ingress/distributed_ingress_base.hpp>
 #include <graphlab/graph/ingress/distributed_oblivious_ingress.hpp>
+#include <graphlab/graph/ingress/distributed_neighbor_ingress.hpp>
 #include <graphlab/graph/ingress/distributed_hdrf_ingress.hpp>
 #include <graphlab/graph/ingress/distributed_random_ingress.hpp>
 #include <graphlab/graph/ingress/distributed_identity_ingress.hpp>
@@ -408,6 +409,7 @@ namespace graphlab {
     friend class distributed_random_ingress<VertexData, EdgeData>;
     friend class distributed_identity_ingress<VertexData, EdgeData>;
     friend class distributed_oblivious_ingress<VertexData, EdgeData>;
+    friend class distributed_neighbor_ingress<VertexData, EdgeData>;
     friend class distributed_hdrf_ingress<VertexData, EdgeData>;
     friend class distributed_constrained_random_ingress<VertexData, EdgeData>;
 
@@ -3183,6 +3185,9 @@ namespace graphlab {
         if (rpc.procid() == 0) logstream(LOG_EMPH) << "Use oblivious ingress, usehash: " << usehash
           << ", userecent: " << userecent << std::endl;
         ingress_ptr = new distributed_oblivious_ingress<VertexData, EdgeData>(rpc.dc(), *this, usehash, userecent);
+      } else if (method == "neighbor") {
+        if (rpc.procid() == 0) logstream(LOG_EMPH) << "Use neighbor ingress" << std::endl;
+        ingress_ptr = new distributed_neighbor_ingress<VertexData, EdgeData>(rpc.dc(), *this);
       } else if (method == "hdrf") {
         if (rpc.procid() == 0) logstream(LOG_EMPH) << "Use hdrf oblivious ingress, usehash: " << usehash
           << ", userecent: " << userecent << std::endl;
