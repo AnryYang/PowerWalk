@@ -346,7 +346,6 @@ template<typename VertexData, typename EdgeData>
                     }
                     if (candidates.size() > 0)
                         avg = (avg+1) / candidates.size();
-                    avg = std::min(avg_degree, avg);
 
                     std::vector<vertex_id_type> new_cores;
                     boost::unordered_set<vertex_id_type> neighbors;
@@ -410,11 +409,12 @@ template<typename VertexData, typename EdgeData>
                     return candidate;
                 if (!min_heap.get_min(degree, vid)) {
                     int count = 0;
-                    do {
-                        vid = random::fast_uniform(vertex_id_type(0), local_nvertices-1);
-                        if (count++ >= 10)
+                    vid = random::fast_uniform(vertex_id_type(0), local_nvertices-1);
+                    while (local_degrees[vid] == 0 || local_degrees[vid] > avg_degree) {
+                        vid = (vid + 1) % local_nvertices;
+                        if (count++ >= local_nvertices)
                             return candidate;
-                    } while (local_degrees[vid] == 0 || local_degrees[vid] >= avg_degree);
+                    }
                 } else {
                     ASSERT_EQ(degree, local_degrees[vid]);
                 }
@@ -477,6 +477,34 @@ template<typename VertexData, typename EdgeData>
                         }
                     }
                 }
+
+                count += flush(master_id);
+
+                return count;
+            }
+
+            size_t flush(procid_t master_id) {
+                size_t count = 0;
+                for (vertex_id_type i = 0; i < local_nvertices; i++)
+                    for (size_t ptr = start_ptr[i]; ptr < start_ptr[i] + local_degrees[i]; )
+                        if (is_core.get(local_edges[ptr].target) ||
+                                (is_boundary.get(local_edges[ptr].source) &&
+                                 is_boundary.get(local_edges[ptr].target))) {
+                            if (!local_edges[ptr].reverse) {
+                                count++;
+                                typename base_type::edge_buffer_record record(local_edges[ptr].source, local_edges[ptr].target, local_edges[ptr].edata);
+#ifdef _OPENMP
+                                base_type::edge_exchange.send(master_id, record, omp_get_thread_num());
+#else
+                                base_type::edge_exchange.send(master_id, record);
+#endif
+                            }
+                            local_degrees[i]--;
+                            if (local_degrees[i] > 0)
+                                std::swap(local_edges[ptr], local_edges[start_ptr[i] + local_degrees[i]]);
+                            min_heap.decrease_key(i);
+                        } else
+                            ptr++;
                 return count;
             }
 
