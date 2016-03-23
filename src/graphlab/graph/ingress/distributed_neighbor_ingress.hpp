@@ -200,7 +200,8 @@ template<typename VertexData, typename EdgeData>
             std::vector<vertex_id_type> local_degrees;
             std::vector<size_t> start_ptr;
             vertex_id_type local_nvertices;
-            size_t total_edges, nedges_limit, avg_degree;
+            size_t total_edges, nedges_limit;
+            double avg_degree;
             vertex_id_type max_vid;
 
             dense_bitset is_core, is_boundary;
@@ -326,10 +327,7 @@ template<typename VertexData, typename EdgeData>
             void master() {
                 size_t num_allocated_edges = 0;
 
-                while (true) {
-                    if (num_allocated_edges >= nedges_limit)
-                        break;
-
+                while (num_allocated_edges < nedges_limit) {
                     std::vector<request_future<candidate_type>> futures;
                     for (procid_t procid = 0; procid < rmi.numprocs(); procid++)
                         futures.push_back(rmi.future_remote_request(procid,
@@ -398,10 +396,7 @@ template<typename VertexData, typename EdgeData>
             void slave(procid_t master_id) {
                 size_t num_allocated_edges = 0;
 
-                while (true) {
-                    if (num_allocated_edges >= nedges_limit)
-                        break;
-
+                while (num_allocated_edges < nedges_limit) {
                     std::vector<vertex_id_type> new_cores;
                     boost::unordered_set<vertex_id_type> neighbors;
                     rmi.broadcast(new_cores, false);
