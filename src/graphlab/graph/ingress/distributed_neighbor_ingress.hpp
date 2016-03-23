@@ -347,6 +347,25 @@ template<typename VertexData, typename EdgeData>
                     if (candidates.size() > 0)
                         avg = (avg+1) / candidates.size();
 
+                    if (candidates.empty() && local_nvertices > 0) {
+                        int count = 0;
+                        vertex_id_type vid = random::fast_uniform(vertex_id_type(0), local_nvertices-1);
+                        while (local_degrees[vid] == 0 || local_degrees[vid] > avg_degree) {
+                            vid = (vid + 1) % local_nvertices;
+                            if (count++ >= local_nvertices)
+                                break;
+                        }
+                        if (count < local_nvertices) {
+                            candidate_type c;
+                            c.vid = vid * rmi.numprocs() + rmi.procid();
+                            for (size_t ptr = start_ptr[vid]; ptr < start_ptr[vid] + local_degrees[vid]; ptr++) {
+                                c.neighbors.push_back(local_edges[ptr].target);
+                            }
+                            candidates.push_back(c);
+                            avg = c.neighbors.size();
+                        }
+                    }
+
                     std::vector<vertex_id_type> new_cores;
                     boost::unordered_set<vertex_id_type> neighbors;
                     for (candidate_type& c : candidates)
@@ -405,23 +424,13 @@ template<typename VertexData, typename EdgeData>
             candidate_type get_candidate() {
                 candidate_type candidate;
                 vertex_id_type degree, vid;
-                if (local_nvertices == 0)
-                    return candidate;
-                if (!min_heap.get_min(degree, vid)) {
-                    int count = 0;
-                    vid = random::fast_uniform(vertex_id_type(0), local_nvertices-1);
-                    while (local_degrees[vid] == 0 || local_degrees[vid] > avg_degree) {
-                        vid = (vid + 1) % local_nvertices;
-                        if (count++ >= local_nvertices)
-                            return candidate;
-                    }
-                } else {
+                if (min_heap.get_min(degree, vid)) {
                     ASSERT_EQ(degree, local_degrees[vid]);
-                }
-                candidate.vid = vid * rmi.numprocs() + rmi.procid();
-                ASSERT_EQ(candidate.vid, local_edges[start_ptr[vid]].source);
-                for (size_t ptr = start_ptr[vid]; ptr < start_ptr[vid] + local_degrees[vid]; ptr++) {
-                    candidate.neighbors.push_back(local_edges[ptr].target);
+                    candidate.vid = vid * rmi.numprocs() + rmi.procid();
+                    ASSERT_EQ(candidate.vid, local_edges[start_ptr[vid]].source);
+                    for (size_t ptr = start_ptr[vid]; ptr < start_ptr[vid] + local_degrees[vid]; ptr++) {
+                        candidate.neighbors.push_back(local_edges[ptr].target);
+                    }
                 }
                 return candidate;
             }
