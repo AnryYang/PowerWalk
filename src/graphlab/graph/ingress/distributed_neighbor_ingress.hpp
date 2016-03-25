@@ -19,6 +19,8 @@
 #define GRAPHLAB_DISTRIBUTED_NEIGHBOR_INGRESS_HPP
 
 
+#include <unordered_map>
+
 #include <graphlab/graph/graph_basic_types.hpp>
 #include <graphlab/graph/ingress/distributed_ingress_base.hpp>
 #include <graphlab/graph/ingress/ingress_edge_decision.hpp>
@@ -40,7 +42,7 @@ class MinHeap {
 private:
     IdxType n;
     std::vector<std::pair<ValueType, KeyType>> heap;
-    std::vector<IdxType> key2idx;
+    std::unordered_map<KeyType, IdxType> key2idx;
 
 public:
     MinHeap() : n(0), heap(), key2idx() { }
@@ -85,12 +87,13 @@ public:
     }
 
     bool contains(KeyType key) {
-        return key2idx[key] != (IdxType) -1;
+        return key2idx.count(key);
     }
 
     void decrease_key(KeyType key) {
-        IdxType cur = key2idx[key];
-        ASSERT_NE(cur, (IdxType) -1);
+        auto it = key2idx.find(key);
+        ASSERT_TRUE(it != key2idx.end());
+        IdxType cur = it->second;
         ASSERT_NE(heap[cur].first, 0);
 
         if (heap[cur].first > 1) {
@@ -99,7 +102,7 @@ public:
         } else {
             std::swap(heap[cur], heap[n-1]);
             std::swap(key2idx[heap[cur].second], key2idx[key]);
-            key2idx[key] = -1;
+            key2idx.erase(key);
             n--;
             cur = shift_up(cur);
             shift_down(cur);
@@ -107,13 +110,14 @@ public:
     }
 
     void remove(KeyType key) {
-        IdxType cur = key2idx[key];
-        if (cur == (IdxType) -1)
+        auto it = key2idx.find(key);
+        if (it == key2idx.end())
             return;
+        IdxType cur = it->second;
 
         std::swap(heap[cur], heap[n-1]);
         std::swap(key2idx[heap[cur].second], key2idx[key]);
-        key2idx[key] = -1;
+        key2idx.erase(key);
         n--;
         cur = shift_up(cur);
         shift_down(cur);
@@ -128,10 +132,10 @@ public:
             return false;
     }
 
-    void reset(KeyType max_key) {
+    void reset(IdxType nelements) {
         n = 0;
-        heap.resize(max_key);
-        key2idx.assign(max_key, -1);
+        heap.resize(nelements);
+        key2idx.clear();
     }
 
     void clear() {
@@ -178,6 +182,15 @@ template<typename VertexData, typename EdgeData>
 
             typedef typename buffered_exchange<edge_record>::buffer_type edge_record_buffer_type;
 
+            struct out_edge {
+                edge_data_type edata;
+                bool reverse;
+                out_edge(const edge_data_type& edata = edge_data_type(), const
+                        bool reverse = false) : edata(edata), reverse(reverse)
+                {
+                }
+            };
+
             struct edge_record_comparator {
                 bool operator()(const edge_record& a, const edge_record& b) {
                     if (a.source == b.source)
@@ -196,13 +209,10 @@ template<typename VertexData, typename EdgeData>
                 void save(oarchive& arc) const { arc << vid << neighbors; }
             };
 
-            std::vector<edge_record> local_edges;
-            std::vector<vertex_id_type> local_degrees;
-            std::vector<size_t> start_ptr;
-            vertex_id_type local_nvertices;
             size_t total_edges, nedges_limit;
             double avg_degree;
-            vertex_id_type max_vid;
+            std::map<vertex_id_type, std::map<vertex_id_type, out_edge>> adj_out;
+            std::map<vertex_id_type, std::set<vertex_id_type>> adj_in;
 
             dense_bitset is_core, is_boundary;
             MinHeap<vertex_id_type, vertex_id_type, vertex_id_type> min_heap;
@@ -240,12 +250,24 @@ template<typename VertexData, typename EdgeData>
 
                 procid_t proc;
                 edge_record_buffer_type edge_record_buffer;
+                adj_out.clear();
+                adj_in.clear();
+                total_edges = 0;
+                vertex_id_type max_vid = 0;
                 while (edge_record_exchange.recv(proc, edge_record_buffer)) {
-                    local_edges.insert(local_edges.end(), edge_record_buffer.begin(), edge_record_buffer.end());
+                    for (auto& e : edge_record_buffer) {
+                        total_edges++;
+                        max_vid = std::max(max_vid, e.source);
+                        adj_out[e.source][e.target] = out_edge(e.edata, e.reverse);
+                        adj_in[e.target].insert(e.source);
+                    }
                 }
+                max_vid++;
                 edge_record_exchange.clear();
 
-                total_edges = local_edges.size();
+                logstream(LOG_INFO) << "Proc " << rmi.procid() << ": " <<
+                    "Number of local edges: " << total_edges << std::endl;
+
                 rmi.all_reduce(total_edges);
                 if (total_edges == 0) {
                     logstream(LOG_INFO) << "Skipping Graph Finalization because no changes happened..." << std::endl;
@@ -254,29 +276,15 @@ template<typename VertexData, typename EdgeData>
                 total_edges /= 2;
                 nedges_limit = total_edges / rmi.numprocs();
 
-                logstream(LOG_INFO) << "Proc " << rmi.procid() << ": " <<
-                    "Number of local edges: " << local_edges.size() << std::endl;
+                vertex_id_type nvertices = adj_out.size();
+                rmi.all_reduce(nvertices);
+                avg_degree = (double) total_edges * 2 / nvertices;
 
-                std::sort(local_edges.begin(), local_edges.end(), edge_record_comparator());
-                local_nvertices = local_edges.empty() ? 0 :
-                    (local_edges.back().source / rmi.numprocs() + 1);
-                local_degrees.assign(local_nvertices, 0);
-                for (auto& each : local_edges)
-                    local_degrees[each.source / rmi.numprocs()]++;
-                start_ptr.assign(local_nvertices, 0);
-                for (vertex_id_type i = 1; i < local_nvertices; i++)
-                    start_ptr[i] = start_ptr[i-1] + local_degrees[i-1];
-
-                if (local_edges.empty())
-                    max_vid = 0;
-                else
-                    max_vid = local_edges.back().source;
                 rmi.all_reduce2(max_vid, vid_max_equal);
-
-                avg_degree = total_edges * 2 / max_vid;
 
                 if (rmi.procid() == 0) {
                     logstream(LOG_INFO) << "Max vertex ID: " << max_vid << std::endl;
+                    logstream(LOG_INFO) << "Number of vertices: " << nvertices << std::endl;
                     logstream(LOG_INFO) << "Expected edges on each machine: " << nedges_limit << std::endl;
                     logstream(LOG_INFO) << "Average degree: " << avg_degree << std::endl;
                 }
@@ -285,7 +293,7 @@ template<typename VertexData, typename EdgeData>
                 is_boundary.resize(max_vid);
 
                 for (procid_t p = 0; p < rmi.numprocs()-1; p++) {
-                    min_heap.reset(local_nvertices);
+                    min_heap.reset(adj_out.size());
                     is_core.clear();
                     is_boundary.clear();
 
@@ -301,11 +309,11 @@ template<typename VertexData, typename EdgeData>
                 if (rmi.procid() == 0)
                     logstream(LOG_INFO) << "Flush remaining edges..." << std::endl;
                 size_t num_allocated_edges = 0;
-                for (vertex_id_type i = 0; i < local_nvertices; i++)
-                    for (size_t ptr = start_ptr[i]; ptr < start_ptr[i] + local_degrees[i]; ptr++)
-                        if (!local_edges[ptr].reverse) {
+                for (auto& u_adj : adj_out)
+                    for (auto e : u_adj.second)
+                        if (!e.second.reverse) {
                             num_allocated_edges++;
-                            typename base_type::edge_buffer_record record(local_edges[ptr].source, local_edges[ptr].target, local_edges[ptr].edata);
+                            typename base_type::edge_buffer_record record(u_adj.first, e.first, e.second.edata);
 #ifdef _OPENMP
                             base_type::edge_exchange.send(rmi.numprocs()-1, record, omp_get_thread_num());
 #else
@@ -316,9 +324,8 @@ template<typename VertexData, typename EdgeData>
                 if (rmi.procid() == rmi.numprocs()-1)
                     logstream(LOG_INFO) << "Allocated edges: " << num_allocated_edges << std::endl;
 
-                local_edges.clear();
-                local_degrees.clear();
-                start_ptr.clear();
+                adj_out.clear();
+                adj_in.clear();
                 min_heap.clear();
 
                 distributed_ingress_base<VertexData, EdgeData>::finalize();
@@ -345,19 +352,20 @@ template<typename VertexData, typename EdgeData>
                     if (candidates.size() > 0)
                         avg = (avg+1) / candidates.size();
 
-                    if (candidates.empty() && local_nvertices > 0) {
+                    if (candidates.empty() && !adj_out.empty()) {
                         int count = 0;
-                        vertex_id_type vid = random::fast_uniform(vertex_id_type(0), local_nvertices-1);
-                        while (local_degrees[vid] == 0 || local_degrees[vid] > avg_degree) {
-                            vid = (vid + 1) % local_nvertices;
-                            if (count++ >= local_nvertices)
+                        auto it = adj_out.begin();
+                        std::advance(it, random::rand() % adj_out.size());
+                        while (it->second.empty() || it->second.size() > avg_degree) {
+                            it++;
+                            if (count++ >= adj_out.size())
                                 break;
                         }
-                        if (count < local_nvertices) {
+                        if (count < adj_out.size()) {
                             candidate_type c;
-                            c.vid = vid * rmi.numprocs() + rmi.procid();
-                            for (size_t ptr = start_ptr[vid]; ptr < start_ptr[vid] + local_degrees[vid]; ptr++) {
-                                c.neighbors.push_back(local_edges[ptr].target);
+                            c.vid = it->first;
+                            for (auto u : it->second) {
+                                c.neighbors.push_back(u.first);
                             }
                             candidates.push_back(c);
                             avg = c.neighbors.size();
@@ -420,11 +428,10 @@ template<typename VertexData, typename EdgeData>
                 candidate_type candidate;
                 vertex_id_type degree, vid;
                 if (min_heap.get_min(degree, vid)) {
-                    ASSERT_EQ(degree, local_degrees[vid]);
-                    candidate.vid = vid * rmi.numprocs() + rmi.procid();
-                    ASSERT_EQ(candidate.vid, local_edges[start_ptr[vid]].source);
-                    for (size_t ptr = start_ptr[vid]; ptr < start_ptr[vid] + local_degrees[vid]; ptr++) {
-                        candidate.neighbors.push_back(local_edges[ptr].target);
+                    ASSERT_EQ(degree, adj_out[vid].size());
+                    candidate.vid = vid;
+                    for (auto& e : adj_out[vid]) {
+                        candidate.neighbors.push_back(e.first);
                     }
                 }
                 return candidate;
@@ -436,79 +443,73 @@ template<typename VertexData, typename EdgeData>
                 for (size_t i = 0; i < new_cores.size(); i++) {
                     vertex_id_type u = new_cores[i];
                     if (u % rmi.numprocs() == rmi.procid()) {
-                        u /= rmi.numprocs();
-                        ASSERT_LT(u, local_nvertices);
-                        ASSERT_GT(local_degrees[u], 0);
-                        for (size_t ptr = start_ptr[u]; ptr < start_ptr[u] + local_degrees[u]; ptr++)
-                            if (!local_edges[ptr].reverse) {
+                        ASSERT_GT(adj_out.count(u), 0);
+                        for (auto& e : adj_out[u]) {
+                            if (!e.second.reverse) {
                                 count++;
-                                typename base_type::edge_buffer_record record(local_edges[ptr].source, local_edges[ptr].target, local_edges[ptr].edata);
+                                typename base_type::edge_buffer_record record(u, e.first, e.second.edata);
 #ifdef _OPENMP
                                 base_type::edge_exchange.send(master_id, record, omp_get_thread_num());
 #else
                                 base_type::edge_exchange.send(master_id, record);
 #endif
                             }
-                        local_degrees[u] = 0;
+                            ASSERT_GT(adj_in[e.first].erase(u), 0);
+                        }
+                        adj_out.erase(u);
                         min_heap.remove(u);
                     }
                 }
 
                 for (auto u : neighbors) {
                     if (u % rmi.numprocs() == rmi.procid()) {
-                        u /= rmi.numprocs();
-                        ASSERT_LT(u, local_nvertices);
-                        if (local_degrees[u] > 0) {
+                        auto it = adj_out.find(u);
+                        if (it != adj_out.end() && !it->second.empty()) {
                             if (!min_heap.contains(u))
-                                min_heap.insert(local_degrees[u], u);
-                            for (size_t ptr = start_ptr[u]; ptr < start_ptr[u] + local_degrees[u]; )
-                                if (is_core.get(local_edges[ptr].target) || is_boundary.get(local_edges[ptr].target)) {
-                                    if (!local_edges[ptr].reverse) {
+                                min_heap.insert(it->second.size(), u);
+                            for (auto e = it->second.begin(); e != it->second.end(); )
+                                if (is_core.get(e->first) || is_boundary.get(e->first)) {
+                                    if (!e->second.reverse) {
                                         count++;
-                                        typename base_type::edge_buffer_record record(local_edges[ptr].source, local_edges[ptr].target, local_edges[ptr].edata);
+                                        typename base_type::edge_buffer_record record(u, e->first, e->second.edata);
 #ifdef _OPENMP
                                         base_type::edge_exchange.send(master_id, record, omp_get_thread_num());
 #else
                                         base_type::edge_exchange.send(master_id, record);
 #endif
                                     }
-                                    local_degrees[u]--;
-                                    if (local_degrees[u] > 0)
-                                        std::swap(local_edges[ptr], local_edges[start_ptr[u] + local_degrees[u]]);
                                     min_heap.decrease_key(u);
+                                    ASSERT_GT(adj_in[e->first].erase(u), 0);
+                                    e = it->second.erase(e);
                                 } else
-                                    ptr++;
+                                    e++;
                         }
                     }
                 }
 
-                count += flush(master_id);
-
-                return count;
-            }
-
-            size_t flush(procid_t master_id) {
-                size_t count = 0;
-                for (vertex_id_type i = 0; i < local_nvertices; i++)
-                    for (size_t ptr = start_ptr[i]; ptr < start_ptr[i] + local_degrees[i]; )
-                        if (is_core.get(local_edges[ptr].target) ||
-                                (is_boundary.get(local_edges[ptr].source) &&
-                                 is_boundary.get(local_edges[ptr].target))) {
-                            if (!local_edges[ptr].reverse) {
+                for (auto u : neighbors) {
+                    auto it = adj_in.find(u);
+                    if (it == adj_in.end()) continue;
+                    for (auto e = it->second.begin(); e != it->second.end(); )
+                        if (is_boundary.get(*e)) {
+                            auto it2 = adj_out[*e].find(u);
+                            ASSERT_TRUE(it2 != adj_out[*e].end());
+                            if (!it2->second.reverse) {
                                 count++;
-                                typename base_type::edge_buffer_record record(local_edges[ptr].source, local_edges[ptr].target, local_edges[ptr].edata);
+                                typename base_type::edge_buffer_record record(*e, u, it2->second.edata);
 #ifdef _OPENMP
                                 base_type::edge_exchange.send(master_id, record, omp_get_thread_num());
 #else
                                 base_type::edge_exchange.send(master_id, record);
 #endif
                             }
-                            local_degrees[i]--;
-                            if (local_degrees[i] > 0)
-                                std::swap(local_edges[ptr], local_edges[start_ptr[i] + local_degrees[i]]);
-                            min_heap.decrease_key(i);
+                            min_heap.decrease_key(*e);
+                            adj_out[*e].erase(it2);
+                            e = it->second.erase(e);
                         } else
-                            ptr++;
+                            e++;
+                }
+
                 return count;
             }
 
