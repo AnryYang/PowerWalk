@@ -111,6 +111,8 @@ namespace graphlab {
     /// Ingress decision object for computing the edge destination. 
     ingress_edge_decision<VertexData, EdgeData> edge_decision;
 
+    size_t nreplicas;
+
   public:
     distributed_ingress_base(distributed_control& dc, graph_type& graph) :
       rpc(dc, this), graph(graph), 
@@ -315,7 +317,10 @@ namespace graphlab {
           // debug
           // std::cout << graph.local_graph << std::endl;
         }
+
       }
+      nreplicas = graph.num_local_vertices();
+      rpc.all_reduce(nreplicas);
 
       /**************************************************************************/
       /*                                                                        */
@@ -527,6 +532,7 @@ namespace graphlab {
       rpc.all_gather(swap_counts);
       graph.nedges = 0;
       foreach(size_t count, swap_counts) graph.nedges += count;
+      size_t max_nedges = *std::max_element(swap_counts.begin(), swap_counts.end());
 
 
       // compute vertex count
@@ -548,6 +554,8 @@ namespace graphlab {
                             << "\n\t nedges: " << graph.num_edges()
                             << "\n\t nreplicas: " << graph.nreplicas
                             << "\n\t replication factor: " << (double)graph.nreplicas/graph.num_vertices()
+                            << "\n\t real replication factor: " << (double)nreplicas/graph.num_vertices()
+                            << "\n\t balance ratio: " << max_nedges / ((double)graph.nedges/rpc.numprocs())
                             << std::endl;
       }
     }
