@@ -100,12 +100,14 @@ public:
             heap[cur].first--;
             shift_up(cur);
         } else {
-            std::swap(heap[cur], heap[n-1]);
-            std::swap(key2idx[heap[cur].second], key2idx[key]);
-            key2idx.erase(key);
             n--;
-            cur = shift_up(cur);
-            shift_down(cur);
+            if (n > 0) {
+                heap[cur] = heap[n];
+                key2idx[heap[cur].second] = cur;
+                cur = shift_up(cur);
+                shift_down(cur);
+            }
+            key2idx.erase(key);
         }
     }
 
@@ -115,12 +117,14 @@ public:
             return;
         IdxType cur = it->second;
 
-        std::swap(heap[cur], heap[n-1]);
-        std::swap(key2idx[heap[cur].second], key2idx[key]);
-        key2idx.erase(key);
         n--;
-        cur = shift_up(cur);
-        shift_down(cur);
+        if (n > 0) {
+            heap[cur] = heap[n];
+            key2idx[heap[cur].second] = cur;
+            cur = shift_up(cur);
+            shift_down(cur);
+        }
+        key2idx.erase(key);
     }
 
     bool get_min(ValueType& value, KeyType& key) {
@@ -209,9 +213,15 @@ template<typename VertexData, typename EdgeData>
                 void save(oarchive& arc) const { arc << vid << neighbors; }
             };
 
+            struct candidate_comparator {
+                bool operator()(const candidate_type& a, const candidate_type& b) {
+                    return a.neighbors.size() < b.neighbors.size();
+                }
+            };
+
             size_t total_edges, nedges_limit;
             double avg_degree;
-            std::map<vertex_id_type, std::map<vertex_id_type, out_edge>> adj_out;
+            std::map<vertex_id_type, std::multimap<vertex_id_type, out_edge>> adj_out;
             std::map<vertex_id_type, std::set<vertex_id_type>> adj_in;
 
             dense_bitset is_core, is_boundary;
@@ -258,7 +268,7 @@ template<typename VertexData, typename EdgeData>
                     for (auto& e : edge_record_buffer) {
                         total_edges++;
                         max_vid = std::max(max_vid, e.source);
-                        adj_out[e.source][e.target] = out_edge(e.edata, e.reverse);
+                        adj_out[e.source].emplace(e.target, out_edge(e.edata, e.reverse));
                         adj_in[e.target].insert(e.source);
                     }
                 }
@@ -285,6 +295,7 @@ template<typename VertexData, typename EdgeData>
                 if (rmi.procid() == 0) {
                     logstream(LOG_INFO) << "Max vertex ID: " << max_vid << std::endl;
                     logstream(LOG_INFO) << "Number of vertices: " << nvertices << std::endl;
+                    logstream(LOG_INFO) << "Number of edges: " << total_edges << std::endl;
                     logstream(LOG_INFO) << "Expected edges on each machine: " << nedges_limit << std::endl;
                     logstream(LOG_INFO) << "Average degree: " << avg_degree << std::endl;
                 }
@@ -334,21 +345,25 @@ template<typename VertexData, typename EdgeData>
             void master() {
                 size_t num_allocated_edges = 0;
 
+                int iteration = 0;
                 while (num_allocated_edges < nedges_limit) {
-                    std::vector<request_future<candidate_type>> futures;
+                    iteration++;
+                    std::vector<request_future<std::vector<candidate_type>>> futures;
                     for (procid_t procid = 0; procid < rmi.numprocs(); procid++)
-                        futures.push_back(rmi.future_remote_request(procid,
-                                    &distributed_neighbor_ingress::get_candidate));
+                        if (iteration < 10)
+                            futures.push_back(rmi.future_remote_request(procid,
+                                        &distributed_neighbor_ingress::get_candidate, 1));
+                        else
+                            futures.push_back(rmi.future_remote_request(procid,
+                                        &distributed_neighbor_ingress::get_candidate, 10));
 
                     std::vector<candidate_type> candidates;
                     size_t avg = 0;
-                    for (auto& each : futures) {
-                        candidate_type c = each();
-                        if (c.vid != (vertex_id_type) -1) {
+                    for (auto& each : futures)
+                        for (auto& c : each()) {
                             candidates.push_back(c);
                             avg += c.neighbors.size();
                         }
-                    }
                     if (candidates.size() > 0)
                         avg = (avg+1) / candidates.size();
 
@@ -372,9 +387,13 @@ template<typename VertexData, typename EdgeData>
                         }
                     }
 
+                    std::sort(candidates.begin(), candidates.end(), candidate_comparator());
+
                     std::vector<vertex_id_type> new_cores;
                     boost::unordered_set<vertex_id_type> neighbors;
-                    for (candidate_type& c : candidates)
+                    for (candidate_type& c : candidates) {
+                        if (neighbors.size() >= 100)
+                            break;
                         if (c.neighbors.size() <= avg) {
                             is_core.set_bit(c.vid);
                             new_cores.push_back(c.vid);
@@ -383,6 +402,7 @@ template<typename VertexData, typename EdgeData>
                                 neighbors.insert(u);
                             }
                         }
+                    }
 
                     rmi.broadcast(new_cores, true);
                     rmi.broadcast(neighbors, true);
@@ -398,6 +418,7 @@ template<typename VertexData, typename EdgeData>
                         logstream(LOG_INFO) << "#new edges: " << count << ", #neighbors: " << neighbors.size() << std::endl;
                     }
                 }
+                logstream(LOG_INFO) << "#iterations: " << iteration << std::endl;
                 logstream(LOG_INFO) << "Allocated edges: " << num_allocated_edges << std::endl;
             }
 
@@ -424,17 +445,23 @@ template<typename VertexData, typename EdgeData>
                 }
             }
 
-            candidate_type get_candidate() {
+            std::vector<candidate_type> get_candidate(int c) {
+                std::vector<candidate_type> res;
                 candidate_type candidate;
                 vertex_id_type degree, vid;
-                if (min_heap.get_min(degree, vid)) {
+                while (c-- > 0 && min_heap.get_min(degree, vid)) {
                     ASSERT_EQ(degree, adj_out[vid].size());
                     candidate.vid = vid;
+                    candidate.neighbors.clear();
                     for (auto& e : adj_out[vid]) {
                         candidate.neighbors.push_back(e.first);
                     }
+                    res.push_back(candidate);
+                    min_heap.remove(vid);
                 }
-                return candidate;
+                for (auto& c : res)
+                    min_heap.insert(c.neighbors.size(), c.vid);
+                return res;
             }
 
             size_t update(procid_t master_id, std::vector<vertex_id_type>& new_cores, boost::unordered_set<vertex_id_type>& neighbors) {
@@ -454,7 +481,7 @@ template<typename VertexData, typename EdgeData>
                                 base_type::edge_exchange.send(master_id, record);
 #endif
                             }
-                            ASSERT_GT(adj_in[e.first].erase(u), 0);
+                            adj_in[e.first].erase(u);
                         }
                         adj_out.erase(u);
                         min_heap.remove(u);
@@ -479,7 +506,7 @@ template<typename VertexData, typename EdgeData>
 #endif
                                     }
                                     min_heap.decrease_key(u);
-                                    ASSERT_GT(adj_in[e->first].erase(u), 0);
+                                    adj_in[e->first].erase(u);
                                     e = it->second.erase(e);
                                 } else
                                     e++;
@@ -494,17 +521,20 @@ template<typename VertexData, typename EdgeData>
                         if (is_boundary.get(*e)) {
                             auto it2 = adj_out[*e].find(u);
                             ASSERT_TRUE(it2 != adj_out[*e].end());
-                            if (!it2->second.reverse) {
-                                count++;
-                                typename base_type::edge_buffer_record record(*e, u, it2->second.edata);
+                            while (it2 != adj_out[*e].end()) {
+                                if (!it2->second.reverse) {
+                                    count++;
+                                    typename base_type::edge_buffer_record record(*e, u, it2->second.edata);
 #ifdef _OPENMP
-                                base_type::edge_exchange.send(master_id, record, omp_get_thread_num());
+                                    base_type::edge_exchange.send(master_id, record, omp_get_thread_num());
 #else
-                                base_type::edge_exchange.send(master_id, record);
+                                    base_type::edge_exchange.send(master_id, record);
 #endif
+                                }
+                                min_heap.decrease_key(*e);
+                                adj_out[*e].erase(it2);
+                                it2 = adj_out[*e].find(u);
                             }
-                            min_heap.decrease_key(*e);
-                            adj_out[*e].erase(it2);
                             e = it->second.erase(e);
                         } else
                             e++;
