@@ -107,14 +107,14 @@ public:
                 cur = shift_up(cur);
                 shift_down(cur);
             }
-            key2idx.erase(key);
+            key2idx.erase(it);
         }
     }
 
-    void remove(KeyType key) {
+    bool remove(KeyType key) {
         auto it = key2idx.find(key);
         if (it == key2idx.end())
-            return;
+            return false;
         IdxType cur = it->second;
 
         n--;
@@ -124,7 +124,8 @@ public:
             cur = shift_up(cur);
             shift_down(cur);
         }
-        key2idx.erase(key);
+        key2idx.erase(it);
+        return true;
     }
 
     bool get_min(ValueType& value, KeyType& key) {
@@ -314,7 +315,6 @@ template<typename VertexData, typename EdgeData>
                         master();
                     } else
                         slave(p);
-                    rmi.barrier();
                 }
 
                 if (rmi.procid() == 0)
@@ -347,6 +347,7 @@ template<typename VertexData, typename EdgeData>
 
                 int iteration = 0;
                 while (num_allocated_edges < nedges_limit) {
+                    rmi.barrier();
                     iteration++;
                     std::vector<request_future<std::vector<candidate_type>>> futures;
                     for (procid_t procid = 0; procid < rmi.numprocs(); procid++)
@@ -426,6 +427,7 @@ template<typename VertexData, typename EdgeData>
                 size_t num_allocated_edges = 0;
 
                 while (num_allocated_edges < nedges_limit) {
+                    rmi.barrier();
                     std::vector<vertex_id_type> new_cores;
                     boost::unordered_set<vertex_id_type> neighbors;
                     rmi.broadcast(new_cores, false);
@@ -457,7 +459,7 @@ template<typename VertexData, typename EdgeData>
                         candidate.neighbors.push_back(e.first);
                     }
                     res.push_back(candidate);
-                    min_heap.remove(vid);
+                    ASSERT_TRUE(min_heap.remove(vid));
                 }
                 for (auto& c : res)
                     min_heap.insert(c.neighbors.size(), c.vid);
