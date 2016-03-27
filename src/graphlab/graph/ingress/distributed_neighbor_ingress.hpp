@@ -304,7 +304,9 @@ template<typename VertexData, typename EdgeData>
                 is_core.resize(max_vid);
                 is_boundary.resize(max_vid);
 
+                float total_time = -timer::approx_time_seconds();
                 for (procid_t p = 0; p < rmi.numprocs()-1; p++) {
+                    float time_used = -timer::approx_time_seconds();
                     min_heap.reset(adj_out.size());
                     is_core.clear();
                     is_boundary.clear();
@@ -315,6 +317,10 @@ template<typename VertexData, typename EdgeData>
                         master();
                     } else
                         slave(p);
+                    time_used += timer::approx_time_seconds();
+                    if (rmi.procid() == p)
+                        logstream(LOG_INFO) << "Time used for master " << p <<
+                            ": " << time_used << "s" << std::endl;
                 }
 
                 if (rmi.procid() == 0)
@@ -338,6 +344,12 @@ template<typename VertexData, typename EdgeData>
                 adj_out.clear();
                 adj_in.clear();
                 min_heap.clear();
+
+                if (rmi.procid() == 0) {
+                    total_time += timer::approx_time_seconds();
+                    logstream(LOG_INFO) << "Time used for the neighbor ingress: "
+                        << total_time << "s" << std::endl;
+                }
 
                 distributed_ingress_base<VertexData, EdgeData>::finalize();
             }
