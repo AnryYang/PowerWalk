@@ -70,7 +70,7 @@ namespace graphlab {
 
     /** Add an edge to the ingress object using random assignment. */
     void add_edge(vertex_id_type source, vertex_id_type target,
-                  const EdgeData& edata) {
+                  const EdgeData& edata, const procid_t& procid) {
       typedef typename base_type::edge_buffer_record edge_buffer_record;
 
       const std::vector<procid_t>& candidates = constraint->get_joint_neighbors(graph_hash::hash_vertex(source) % base_type::rpc.numprocs(),

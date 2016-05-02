@@ -60,7 +60,7 @@ namespace graphlab {
 
     /** Add an edge to the ingress object and assign the edge to itself. */
     void add_edge(vertex_id_type source, vertex_id_type target,
-                  const EdgeData& edata) {
+                  const EdgeData& edata, const procid_t& procid) {
       typedef typename base_type::edge_buffer_record edge_buffer_record;
       const procid_t owning_proc = base_type::rpc.procid();
       const edge_buffer_record record(source, target, edata);

@@ -80,6 +80,7 @@
 #include <graphlab/graph/ingress/distributed_hdrf_ingress.hpp>
 #include <graphlab/graph/ingress/distributed_random_ingress.hpp>
 #include <graphlab/graph/ingress/distributed_identity_ingress.hpp>
+#include <graphlab/graph/ingress/edgepart_ingress.hpp>
 
 #include <graphlab/graph/ingress/sharding_constraint.hpp>
 #include <graphlab/graph/ingress/distributed_constrained_random_ingress.hpp>
@@ -819,7 +820,8 @@ namespace graphlab {
      * was added.
      */
     bool add_vertex(const vertex_id_type& vid,
-                    const VertexData& vdata = VertexData() ) {
+                    const VertexData& vdata = VertexData(),
+                    const procid_t& procid = procid_t() ) {
 #ifndef USE_DYNAMIC_LOCAL_GRAPH
       if(finalized) {
         logstream(LOG_FATAL)
@@ -838,7 +840,7 @@ namespace graphlab {
         return false;
       }
       ASSERT_NE(ingress_ptr, NULL);
-      ingress_ptr->add_vertex(vid, vdata);
+      ingress_ptr->add_vertex(vid, vdata, procid);
       return true;
     }
 
@@ -860,7 +862,8 @@ namespace graphlab {
      * we are trying to create a vertex with ID (vertex_id_type)(-1).
      */
     bool add_edge(vertex_id_type source, vertex_id_type target,
-                  const EdgeData& edata = EdgeData()) {
+                  const EdgeData& edata = EdgeData(),
+                  const procid_t& procid = procid_t() ) {
 
 #ifndef USE_DYNAMIC_LOCAL_GRAPH
       if(finalized) {
@@ -899,7 +902,7 @@ namespace graphlab {
       }
       ASSERT_NE(ingress_ptr, NULL);
 
-      ingress_ptr->add_edge(source, target, edata);
+      ingress_ptr->add_edge(source, target, edata, procid);
       return true;
     }
 
@@ -2437,6 +2440,9 @@ namespace graphlab {
       } else if (format == "graphjrl") {
         line_parser = builtin_parsers::graphjrl_parser<distributed_graph>;
         load(path, line_parser);
+      } else if (format == "edgepart") {
+        line_parser = builtin_parsers::edgepart_parser<distributed_graph>;
+        load(path, line_parser);
       } else if (format == "bintsv4") {
          load_direct(path,&graph_type::load_bintsv4_from_stream);
       } else if (format == "bin") {
@@ -3195,6 +3201,9 @@ namespace graphlab {
       } else if  (method == "random") {
         if (rpc.procid() == 0)logstream(LOG_EMPH) << "Use random ingress" << std::endl;
         ingress_ptr = new distributed_random_ingress<VertexData, EdgeData>(rpc.dc(), *this); 
+      } else if  (method == "edgepart") {
+        if (rpc.procid() == 0)logstream(LOG_EMPH) << "Use edgepart ingress" << std::endl;
+        ingress_ptr = new edgepart_ingress<VertexData, EdgeData>(rpc.dc(), *this);
       } else if (method == "grid") {
         if (rpc.procid() == 0)logstream(LOG_EMPH) << "Use grid ingress" << std::endl;
         ingress_ptr = new distributed_constrained_random_ingress<VertexData, EdgeData>(rpc.dc(), *this, "grid");

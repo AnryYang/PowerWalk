@@ -311,6 +311,34 @@ namespace graphlab {
       }
       return true;
     }
+
+    template <typename Graph>
+    bool edgepart_parser(Graph& graph, const std::string& srcfilename,
+                         const std::string& str) {
+      std::string unescapedstr = graphjrl_writer<Graph>::unescape_newline(str);
+      boost::iostreams::stream<boost::iostreams::array_source> istrm(
+        unescapedstr.c_str(), unescapedstr.length());
+      iarchive iarc(istrm);
+
+      char entrytype;
+      iarc >> entrytype;
+      if (entrytype == 0) {
+        typename Graph::vertex_id_type vid;
+        typename Graph::vertex_data_type vdata;
+        procid_t procid;
+        iarc >> vid >> procid;
+        graph.add_vertex(vid, vdata, procid);
+      } else if (entrytype == 1) {
+        typename Graph::vertex_id_type srcvid, destvid;
+        typename Graph::edge_data_type edata;
+        procid_t procid;
+        iarc >> srcvid >> destvid >> procid;
+        graph.add_edge(srcvid, destvid, edata, procid);
+      } else {
+        return false;
+      }
+      return true;
+    }
     
   } // namespace builtin_parsers
 } // namespace graphlab

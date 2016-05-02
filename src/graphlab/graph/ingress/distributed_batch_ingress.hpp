@@ -121,7 +121,7 @@ namespace graphlab {
      }
 
     /** Adds an edge to the batch ingress buffer, and updates the query set. */
-    void add_edge(vertex_id_type source, vertex_id_type target, const EdgeData& edata) {
+    void add_edge(vertex_id_type source, vertex_id_type target, const EdgeData& edata, const procid_t& procid) {
       BEGIN_TRACEPOINT(batch_ingress_add_edge);
       edgesend_lock.lock();
       ASSERT_LT(edgesend.size(), bufsize);

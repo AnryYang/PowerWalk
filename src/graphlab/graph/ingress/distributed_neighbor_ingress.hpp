@@ -242,7 +242,7 @@ template<typename VertexData, typename EdgeData>
 
             /** Add an edge to the ingress object using neighbor greedy assignment. */
             void add_edge(vertex_id_type source, vertex_id_type target,
-                    const EdgeData& edata) {
+                    const EdgeData& edata, const procid_t& procid) {
                 edge_record record(source, target, edata, false),
                     reversed(target, source, edata, true);
 #ifdef _OPENMP

@@ -130,7 +130,7 @@ namespace graphlab {
 
     /** \brief Add an edge to the ingress object. */
     virtual void add_edge(vertex_id_type source, vertex_id_type target,
-                          const EdgeData& edata) {
+                          const EdgeData& edata, const procid_t& procid) {
       const procid_t owning_proc = 
         edge_decision.edge_to_proc_random(source, target, rpc.numprocs());
       const edge_buffer_record record(source, target, edata);
@@ -143,7 +143,7 @@ namespace graphlab {
 
 
     /** \brief Add an vertex to the ingress object. */
-    virtual void add_vertex(vertex_id_type vid, const VertexData& vdata)  { 
+    virtual void add_vertex(vertex_id_type vid, const VertexData& vdata, const procid_t& procid) {
       const procid_t owning_proc = graph_hash::hash_vertex(vid) % rpc.numprocs();
       const vertex_buffer_record record(vid, vdata);
 #ifdef _OPENMP

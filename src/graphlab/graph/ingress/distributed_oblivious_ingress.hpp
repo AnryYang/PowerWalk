@@ -83,7 +83,7 @@ namespace graphlab {
 
     /** Add an edge to the ingress object using oblivious greedy assignment. */
     void add_edge(vertex_id_type source, vertex_id_type target,
-                  const EdgeData& edata) {
+                  const EdgeData& edata, const procid_t& procid) {
       obliv_lock.lock();
       dht[source]; dht[target];
       const procid_t owning_proc = 
