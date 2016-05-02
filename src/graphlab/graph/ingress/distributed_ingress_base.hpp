@@ -113,6 +113,8 @@ namespace graphlab {
 
     size_t nreplicas;
 
+    std::vector<procid_t> masters;
+
   public:
     distributed_ingress_base(distributed_control& dc, graph_type& graph) :
       rpc(dc, this), graph(graph), 
@@ -358,6 +360,10 @@ namespace graphlab {
 
 
 
+      if (rpc.procid() == 0)
+          rpc.broadcast(masters, true);
+      else
+          rpc.broadcast(masters, false);
       /**************************************************************************/
       /*                                                                        */
       /*        assign vertex data and allocate vertex (meta)data  space        */
@@ -371,7 +377,8 @@ namespace graphlab {
         foreach(const vid2lvid_pair_type& pair, vid2lvid_buffer) {
             vertex_record& vrec = graph.lvid2record[pair.second];
             vrec.gvid = pair.first;
-            vrec.owner = graph_hash::hash_vertex(pair.first) % rpc.numprocs();
+            vrec.owner = masters.empty() ? graph_hash::hash_vertex(pair.first) % rpc.numprocs() :
+                masters[pair.first];
         }
         ASSERT_EQ(local_nverts, graph.local_graph.num_vertices());
         ASSERT_EQ(graph.lvid2record.size(), graph.local_graph.num_vertices());

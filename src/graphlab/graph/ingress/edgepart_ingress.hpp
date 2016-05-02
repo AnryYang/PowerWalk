@@ -40,13 +40,10 @@ namespace graphlab {
     /** Add an vertex to the ingress object. */
     void add_vertex(vertex_id_type vid, const VertexData& vdata, const
             procid_t& procid) {
-      typedef typename base_type::vertex_buffer_record vertex_buffer_record;
-      const vertex_buffer_record record(vid, vdata);
-#ifdef _OPENMP
-      base_type::vertex_exchange.send(procid, record, omp_get_thread_num());
-#else
-      base_type::vertex_exchange.send(procid, record);
-#endif
+        ASSERT_EQ(this->rpc.procid(), 0);
+        if (vid >= this->masters.size())
+            this->masters.resize(vid + 1);
+        this->masters[vid] = procid;
     }
 
     /** Add an edge to the ingress object using random assignment. */
