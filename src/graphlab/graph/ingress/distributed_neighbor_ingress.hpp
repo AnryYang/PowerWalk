@@ -381,7 +381,7 @@ template<typename VertexData, typename EdgeData>
                         avg = (avg+1) / candidates.size();
 
                     if (candidates.empty() && !adj_out.empty()) {
-                        int count = 0;
+                        size_t count = 0;
                         auto it = adj_out.begin();
                         std::advance(it, random::rand() % adj_out.size());
                         while (it->second.empty() || it->second.size() > avg_degree) {
