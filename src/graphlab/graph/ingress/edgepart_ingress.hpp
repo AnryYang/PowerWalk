@@ -27,12 +27,22 @@ namespace graphlab {
     /// The type of the edge data stored in the graph 
     typedef EdgeData   edge_data_type;
 
-
     typedef distributed_ingress_base<VertexData, EdgeData> base_type;
+
+    struct {
+        void operator()(std::vector<procid_t>& a, const std::vector<procid_t>& b) {
+            if (b.size() > a.size())
+                a.resize(b.size());
+            for (size_t i = 0; i < b.size(); i++)
+                a[i] += b[i];
+        }
+    } plusequal;
+
+    dc_dist_object<edgepart_ingress> rmi;
    
   public:
     edgepart_ingress(distributed_control& dc, graph_type& graph) :
-    base_type(dc, graph) {
+        base_type(dc, graph), rmi(dc, this) {
     } // end of constructor
 
     ~edgepart_ingress() { }
@@ -40,7 +50,6 @@ namespace graphlab {
     /** Add an vertex to the ingress object. */
     void add_vertex(vertex_id_type vid, const VertexData& vdata, const
             procid_t& procid) {
-        ASSERT_EQ(this->rpc.procid(), 0);
         if (vid >= this->masters.size())
             this->masters.resize(vid + 1);
         this->masters[vid] = procid;
@@ -57,6 +66,12 @@ namespace graphlab {
       base_type::edge_exchange.send(procid, record);
 #endif
     } // end of add edge
+
+    void finalize() {
+        rmi.all_reduce2(this->masters, plusequal);
+
+        base_type::finalize();
+    }
   }; // end of distributed_random_ingress
 }; // end of namespace graphlab
 #include <graphlab/macros_undef.hpp>
