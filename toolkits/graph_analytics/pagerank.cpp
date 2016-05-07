@@ -223,6 +223,7 @@ int main(int argc, char** argv) {
   }
 
   // Build the graph ----------------------------------------------------------
+  graphlab::timer ingress_time;  ingress_time.start();
   graph_type graph(dc, clopts);
   if(powerlaw > 0) { // make a synthetic graph
     dc.cout() << "Loading synthetic Powerlaw graph." << std::endl;
@@ -241,6 +242,8 @@ int main(int argc, char** argv) {
   graph.finalize();
   dc.cout() << "#vertices: " << graph.num_vertices()
             << " #edges:" << graph.num_edges() << std::endl;
+  dc.cout() << "Ingress time: " << ingress_time.current_time() << " seconds"
+            << std::endl;
 
   // Initialize the vertex data
   graph.transform_vertices(init_vertex);
