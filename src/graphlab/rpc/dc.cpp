@@ -159,10 +159,15 @@ distributed_control::distributed_control(dc_init_param initparam) {
 
 
 distributed_control::~distributed_control() {
+  distributed_services->full_barrier();
+  size_t total_comm_bytes = network_bytes_sent();
+  all_reduce(total_comm_bytes);
+  cout() << "Total communitation: " << total_comm_bytes << " ("
+         << (double)total_comm_bytes / 1024 / 1024 << " MB)" << std::endl;
+
   // detach the instance
   last_dc = NULL;
   last_dc_procid = 0;
-  distributed_services->full_barrier();
   logstream(LOG_INFO) << "Shutting down distributed control " << std::endl;
   FREE_CALLBACK_EVENT(EVENT_NETWORK_BYTES);
   FREE_CALLBACK_EVENT(EVENT_RPC_CALLS);
