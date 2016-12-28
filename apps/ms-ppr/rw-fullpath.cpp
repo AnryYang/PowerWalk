@@ -337,8 +337,8 @@ int main(int argc, char** argv) {
     }
     for (size_t i = 0; i < num_sources_vec.size(); i++) {
         int num_sources = num_sources_vec[i];
-        dc.cout() << "num_sources : " << num_sources << std::endl;
         if (sources_file.length() > 0) {
+            dc.cout() << "num_sources : " << num_sources << std::endl;
             sources = new boost::unordered_set<graphlab::vertex_id_type>();
             std::ifstream fin(sources_file.c_str());
             int total_sources;
